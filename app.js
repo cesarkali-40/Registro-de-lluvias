@@ -266,6 +266,29 @@ function hideLoading() {
 
 // ─── Records Loading & Saving ──────────────────────────────────────────
 async function loadRecords() {
+    // If a Google Drive/Sheets URL is linked, try fetching from it first to get the most up-to-date data
+    const gDriveUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY);
+    if (gDriveUrl) {
+        try {
+            const response = await fetch(gDriveUrl);
+            if (response.ok) {
+                const csvText = await response.text();
+                // Ensure we got a valid response (not a login HTML or JSON error)
+                if (csvText && !csvText.trim().startsWith('<!doctype') && !csvText.trim().startsWith('{')) {
+                    const parsed = parseCsvContent(csvText);
+                    if (parsed && parsed.length > 0) {
+                        records = parsed;
+                        migrateRecords();
+                        saveRecordsToStorage();
+                        return;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Error auto-loading from Google Drive linked URL, falling back to local storage:", e);
+        }
+    }
+
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) {
         records = JSON.parse(stored);
@@ -309,6 +332,25 @@ async function loadRecords() {
 
 function saveRecordsToStorage() {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+    
+    // Auto-save to Google Drive if a Web App URL is configured
+    const gDriveUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY);
+    if (gDriveUrl) {
+        fetch(gDriveUrl, {
+            method: 'POST',
+            body: JSON.stringify(records)
+        })
+        .then(response => {
+            if (response.ok) {
+                console.log("Successfully auto-saved to Google Drive.");
+            } else {
+                console.warn("Google Drive responded with error while auto-saving.");
+            }
+        })
+        .catch(err => {
+            console.error("Error auto-saving to Google Drive:", err);
+        });
+    }
     
     // Auto-save to disk via local server API
     fetch('/api/save', {
