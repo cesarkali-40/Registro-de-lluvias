@@ -240,7 +240,7 @@ document.addEventListener('DOMContentLoaded', initApp);
 async function initApp() {
     showLoading();
     try {
-        loadRecords();
+        await loadRecords();
         populateDropdowns();
         setupDateInputs();
         initFormMap();
@@ -263,13 +263,43 @@ function hideLoading() {
 }
 
 // ─── Records Loading & Saving ──────────────────────────────────────────
-function loadRecords() {
+async function loadRecords() {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) {
         records = JSON.parse(stored);
+        // If the stored data is only the default 12 mock records, upgrade/replace it with the 2023 CSV data
+        const isMock = records.length === 12 && records[0].date === '2026-05-15';
+        if (isMock) {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            return await loadRecords();
+        }
+        
+        // If the stored data lacks 2024 or 2025 records (which we just added to the CSV), refresh it from the CSV
+        const hasLaterYears = records.some(r => r.date.startsWith('2024') || r.date.startsWith('2025'));
+        if (!hasLaterYears) {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            return await loadRecords();
+        }
+        
         migrateRecords();
     } else {
-        records = [...MOCK_DATA];
+        try {
+            const response = await fetch('plantilla_registro_lluvias.csv');
+            if (response.ok) {
+                const csvText = await response.text();
+                const parsed = parseCsvContent(csvText);
+                if (parsed && parsed.length > 0) {
+                    records = parsed;
+                } else {
+                    records = [...MOCK_DATA];
+                }
+            } else {
+                records = [...MOCK_DATA];
+            }
+        } catch (e) {
+            console.error("Error fetching plantilla_registro_lluvias.csv, using mock data:", e);
+            records = [...MOCK_DATA];
+        }
         migrateRecords();
         saveRecordsToStorage();
     }
