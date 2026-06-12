@@ -1,0 +1,72 @@
+id,date,department,municipality,rain,lat,lng
+1,2026-06-11,Capital,Capital (Corrientes),0.0,-27.4692,-58.8306
+2,2026-06-11,Capital,Riachuelo,0.0,-27.5794,-58.7472
+3,2026-06-11,Bella Vista,Bella Vista,0.0,-28.5083,-59.0436
+4,2026-06-11,Bella Vista,Tres de Abril,0.0,-28.5515,-59.0031
+5,2026-06-11,Berón de Astrada,Berón de Astrada,0.0,-27.3056,-57.5344
+6,2026-06-11,Concepción,Concepción,0.0,-28.3917,-57.8867
+7,2026-06-11,Concepción,Santa Rosa,0.0,-28.2631,-58.1172
+8,2026-06-11,Curuzú Cuatiá,Curuzú Cuatiá,0.0,-29.7917,-58.0561
+9,2026-06-11,Curuzú Cuatiá,Perugorría,0.0,-29.3453,-58.6186
+10,2026-06-11,Curuzú Cuatiá,Cazadores Correntinos,0.0,-29.9806,-57.7761
+11,2026-06-11,Empedrado,Empedrado,0.0,-27.9014,-58.8058
+12,2026-06-11,Empedrado,El Sombrero,0.0,-27.6744,-58.7831
+13,2026-06-11,Empedrado,Manuel Derqui,0.0,-27.7562,-58.8041
+14,2026-06-11,Esquina,Esquina,0.0,-30.0139,-59.5267
+15,2026-06-11,Esquina,Pueblo Libertador,0.0,-30.2227,-59.4344
+16,2026-06-11,Esquina,Malvinas,0.0,-30.0833,-59.1333
+17,2026-06-11,General Alvear,Alvear,0.0,-29.0950,-56.5433
+18,2026-06-11,General Alvear,Estación Torrent,0.0,-28.8256,-56.5139
+19,2026-06-11,General Paz,Caá Catí,0.0,-27.7511,-57.6208
+20,2026-06-11,General Paz,Itá Ibaté,0.0,-27.4265,-57.3361
+21,2026-06-11,General Paz,Lomas de Vallejos,0.0,-27.7317,-57.1722
+22,2026-06-11,General Paz,Palmar Grande,0.0,-27.8767,-57.7411
+23,2026-06-11,Goya,Goya,0.0,-29.1442,-59.2635
+24,2026-06-11,Goya,Colonia Carolina,0.0,-29.1353,-59.1833
+25,2026-06-11,Goya,San Isidro,0.0,-29.3908,-59.2433
+26,2026-06-11,Itatí,Itatí,0.0,-27.2678,-58.2458
+27,2026-06-11,Itatí,Ramada Paso,0.0,-27.3644,-58.3189
+28,2026-06-11,Ituzaingó,Ituzaingó,0.0,-27.5808,-56.6853
+29,2026-06-11,Ituzaingó,San Antonio (Isla Apipé Grande),0.0,-27.5028,-56.7328
+30,2026-06-11,Ituzaingó,San Carlos,0.0,-27.7478,-55.8978
+31,2026-06-11,Ituzaingó,Colonia Liebig,0.0,-27.9150,-55.8169
+32,2026-06-11,Ituzaingó,Villa Olivari,0.0,-27.4253,-56.9944
+33,2026-06-11,Lavalle,Santa Lucía,0.0,-28.9875,-59.1025
+34,2026-06-11,Lavalle,Lavalle,0.0,-29.0233,-59.1833
+35,2026-06-11,Lavalle,Gobernador Martinez,0.0,-28.9100,-58.9100
+36,2026-06-11,Lavalle,Cruz de los Milagros,0.0,-28.7900,-58.9800
+37,2026-06-11,Lavalle,Yatay Tí Calle,0.0,-29.0433,-58.9100
+38,2026-06-11,Mercedes,Mercedes,0.0,-29.1842,-58.0753
+39,2026-06-11,Mercedes,Felipe Yofre,0.0,-29.1006,-58.3314
+40,2026-06-11,Mercedes,Mariano I. Loza,0.0,-29.3758,-58.1883
+41,2026-06-11,Monte Caseros,Monte Caseros,0.0,-30.2526,-57.6369
+42,2026-06-11,Monte Caseros,Mocoretá,0.0,-30.6183,-57.9708
+43,2026-06-11,Monte Caseros,Juan Pujol,0.0,-30.4300,-57.8500
+44,2026-06-11,Paso de los Libres,Paso de los Libres,0.0,-29.7122,-57.0869
+45,2026-06-11,Paso de los Libres,Bonpland,0.0,-29.8169,-57.4303
+46,2026-06-11,Paso de los Libres,Parada Pucheta,0.0,-30.0436,-57.7125
+47,2026-06-11,Paso de los Libres,Tapebicuá,0.0,-29.5317,-56.9422
+48,2026-06-11,Saladas,Saladas,0.0,-28.2536,-58.6256
+49,2026-06-11,Saladas,Anguá,0.0,-28.3200,-58.7300
+50,2026-06-11,Saladas,La Mansión,0.0,-28.2700,-58.5500
+51,2026-06-11,Saladas,San Lorenzo,0.0,-28.1347,-58.7667
+52,2026-06-11,San Cosme,San Cosme,0.0,-27.3711,-58.5117
+53,2026-06-11,San Cosme,Paso de la Patria,0.0,-27.3175,-58.5747
+54,2026-06-11,San Cosme,Santa Ana de los Guácaras,0.0,-27.4644,-58.7189
+55,2026-06-11,San Luis del Palmar,San Luis del Palmar,0.0,-27.5069,-58.5544
+56,2026-06-11,San Luis del Palmar,Herlitzka,0.0,-27.6167,-58.3333
+57,2026-06-11,San Martín,La Cruz,0.0,-29.1744,-56.6433
+58,2026-06-11,San Martín,Yapeyú,0.0,-29.4694,-56.8183
+59,2026-06-11,San Martín,Carlos Pellegrini,0.0,-28.5342,-57.1717
+60,2026-06-11,San Martín,Guaviraví,0.0,-29.3569,-56.8433
+61,2026-06-11,Mburucuyá,Mburucuyá,0.0,-28.0478,-58.2283
+62,2026-06-11,San Miguel,San Miguel,0.0,-27.9861,-57.5894
+63,2026-06-11,San Miguel,Loreto,0.0,-27.7681,-57.2731
+64,2026-06-11,San Miguel,El Caimán,0.0,-27.9622,-57.4856
+65,2026-06-11,San Roque,San Roque,0.0,-28.5744,-58.7089
+66,2026-06-11,San Roque,Chavarría,0.0,-28.9567,-58.5744
+67,2026-06-11,Santo Tomé,Santo Tomé,0.0,-28.5492,-56.0428
+68,2026-06-11,Santo Tomé,Gobernador Virasoro,0.0,-28.0494,-56.0219
+69,2026-06-11,Santo Tomé,Garruchos,0.0,-28.1819,-55.6456
+70,2026-06-11,Santo Tomé,Garaví,0.0,-28.2567,-55.8031
+71,2026-06-11,Sauce,Sauce,0.0,-30.0736,-58.7731
