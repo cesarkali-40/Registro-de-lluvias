@@ -250,6 +250,7 @@ async function initApp() {
         initDashboardMap();
         wireEvents();
         applyFilters();
+        initReportSection();
     } catch (error) {
         console.error('Error durante la inicialización de la app:', error);
     }
@@ -1115,6 +1116,7 @@ function handleFormSubmit(e) {
     // Update filters bounds and apply
     setupDateInputs();
     applyFilters();
+    updateReportYearsList();
 }
 
 // ─── Delete Record Handler ──────────────────────────────────────────────
@@ -1135,6 +1137,7 @@ window.deleteRecord = async function(id) {
         }
         showFloatingNotification('Registro eliminado.', 'success');
         applyFilters();
+        updateReportYearsList();
     }
 };
 
@@ -1410,6 +1413,7 @@ function handleFileImport(e) {
             saveRecordsToStorage();
             setupDateInputs();
             applyFilters();
+            updateReportYearsList();
             
         } catch (err) {
             showFloatingNotification(`Error al importar: ${err.message}`, 'warning');
@@ -1737,6 +1741,7 @@ async function syncGoogleSheets() {
         saveRecordsToStorage();
         setupDateInputs();
         applyFilters();
+        updateReportYearsList();
         
     } catch (err) {
         showFloatingNotification(`Error al sincronizar: ${err.message}`, 'warning');
@@ -1989,4 +1994,458 @@ function showImportConfirmModal(count) {
         modal.style.display = 'flex';
     });
 }
+
+// ─── Excel Report Generation Section ─────────────────────────────────────
+// ─── Excel Report Generation Section ─────────────────────────────────────
+function initReportSection() {
+    // 1. Departments
+    const reportDeptsList = document.getElementById('reportDeptsList');
+    if (!reportDeptsList) return;
+    reportDeptsList.innerHTML = '';
+    
+    // Get sorted list of all departments from DEPARTMENTS_DATA
+    const depts = Object.keys(DEPARTMENTS_DATA).sort();
+    
+    depts.forEach((dept, idx) => {
+        const item = document.createElement('div');
+        item.className = 'report-checkbox-item';
+        item.innerHTML = `
+            <input type="checkbox" id="repDept_${idx}" value="${dept}">
+            <label for="repDept_${idx}" class="report-checkbox-label">${dept}</label>
+        `;
+        reportDeptsList.appendChild(item);
+    });
+    
+    // 2. Months
+    const reportMonthsList = document.getElementById('reportMonthsList');
+    reportMonthsList.innerHTML = '';
+    const monthsNames = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    monthsNames.forEach((monthName, idx) => {
+        const item = document.createElement('div');
+        item.className = 'report-checkbox-item';
+        item.innerHTML = `
+            <input type="checkbox" id="repMonth_${idx}" value="${idx + 1}">
+            <label for="repMonth_${idx}" class="report-checkbox-label">${monthName}</label>
+        `;
+        reportMonthsList.appendChild(item);
+    });
+    
+// 3. Years
+    updateReportYearsList();
+    
+    // 4. Wire select all buttons
+    document.getElementById('btnSelectAllDepts').onclick = toggleAllDepts;
+    document.getElementById('btnSelectAllMonths').onclick = toggleAllMonths;
+    document.getElementById('btnDownloadReportExcel').onclick = downloadExcelReport;
+}
+
+function updateReportYearsList() {
+    const reportYearsList = document.getElementById('reportYearsList');
+    if (!reportYearsList) return;
+    reportYearsList.innerHTML = '';
+    
+    // Extract unique years from records
+    const years = new Set();
+    records.forEach(r => {
+        if (r.date) {
+            const year = r.date.split('-')[0];
+            if (year && !isNaN(year)) {
+                years.add(year);
+            }
+        }
+    });
+    
+    // If no years found, add current year
+    if (years.size === 0) {
+        years.add(new Date().getFullYear().toString());
+    }
+    
+    const sortedYears = Array.from(years).sort((a, b) => b - a); // descending
+    sortedYears.forEach((year, idx) => {
+        const item = document.createElement('div');
+        item.className = 'report-checkbox-item';
+        item.innerHTML = `
+            <input type="checkbox" id="repYear_${idx}" value="${year}" checked>
+            <label for="repYear_${idx}" class="report-checkbox-label">${year}</label>
+        `;
+        reportYearsList.appendChild(item);
+    });
+}
+
+let allDeptsSelected = false;
+function toggleAllDepts() {
+    const checkboxes = document.querySelectorAll('#reportDeptsList input[type="checkbox"]');
+    allDeptsSelected = !allDeptsSelected;
+    checkboxes.forEach(cb => cb.checked = allDeptsSelected);
+    document.getElementById('btnSelectAllDepts').textContent = allDeptsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
+}
+
+let allMonthsSelected = false;
+function toggleAllMonths() {
+    const checkboxes = document.querySelectorAll('#reportMonthsList input[type="checkbox"]');
+    allMonthsSelected = !allMonthsSelected;
+    checkboxes.forEach(cb => cb.checked = allMonthsSelected);
+    document.getElementById('btnSelectAllMonths').textContent = allMonthsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
+}
+
+async function downloadExcelReport() {
+    // Get selected departments
+    const selectedDepts = Array.from(document.querySelectorAll('#reportDeptsList input[type="checkbox"]:checked')).map(cb => cb.value);
+    // Get selected months
+    const selectedMonths = Array.from(document.querySelectorAll('#reportMonthsList input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
+    // Get selected years
+    const selectedYears = Array.from(document.querySelectorAll('#reportYearsList input[type="checkbox"]:checked')).map(cb => cb.value);
+    
+    if (selectedDepts.length === 0) {
+        showFloatingNotification('Por favor, seleccione al menos un departamento.', 'warning');
+        return;
+    }
+    if (selectedMonths.length === 0) {
+        showFloatingNotification('Por favor, seleccione al menos un mes.', 'warning');
+        return;
+    }
+    if (selectedYears.length === 0) {
+        showFloatingNotification('Por favor, seleccione al menos un año.', 'warning');
+        return;
+    }
+    
+    showLoading();
+    
+    try {
+        const monthsNames = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ];
+        
+        // Sort inputs
+        selectedDepts.sort();
+        selectedYears.sort((a,b) => a - b);
+        selectedMonths.sort((a,b) => a - b);
+        
+        const periods = [];
+        selectedYears.forEach(yearStr => {
+            const year = parseInt(yearStr);
+            selectedMonths.forEach(month => {
+                periods.push({ year, month });
+            });
+        });
+        
+        // Build beautiful HTML report layout
+        let htmlContent = `
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>Reporte Pluviométrico</title>
+            <style>
+                @page {
+                    size: legal landscape; /* Legal = Oficio (8.5 x 14 in) */
+                    margin: 0.5cm 0.6cm;
+                }
+                body {
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    color: #1e293b;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #fff;
+                    font-size: 8.5px;
+                    line-height: 1.15;
+                }
+                
+                /* Repeating header using standard print rules */
+                .page-header-space {
+                    height: 72px;
+                }
+                .page-header {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 62px;
+                    border-bottom: 2px solid #1e293b;
+                    background-color: white;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: flex-start;
+                    gap: 3px;
+                }
+                .logo-container {
+                    width: 100%;
+                    text-align: left;
+                }
+                .logo-container img {
+                    width: auto;
+                    height: 42px;
+                    object-fit: contain;
+                    display: block;
+                }
+                .report-title {
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #0f172a;
+                    margin-top: 1px;
+                }
+                
+                .main-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                
+                .dept-container {
+                    margin-top: 8px;
+                    page-break-after: always;
+                    break-after: page;
+                }
+                .dept-container:last-child {
+                    page-break-after: avoid;
+                    break-after: avoid;
+                }
+                .dept-title {
+                    font-size: 11px;
+                    font-weight: bold;
+                    color: #059669; /* green */
+                    margin-bottom: 6px;
+                    text-transform: uppercase;
+                    border-bottom: 1px solid #e2e8f0;
+                    padding-bottom: 2px;
+                }
+                
+                /* Layout for tables side by side */
+                .months-row {
+                    display: flex;
+                    gap: 12px;
+                    width: 100%;
+                    flex-wrap: nowrap;
+                }
+                .month-table-container {
+                    flex: 1 1 0px;
+                    min-width: 0;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                }
+                .month-header {
+                    font-size: 9.5px;
+                    font-weight: bold;
+                    color: #0f172a;
+                    margin-bottom: 4px;
+                    text-align: center;
+                }
+                
+                /* Styled spreadsheet tables */
+                .data-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 8.5px;
+                }
+                .data-table th, .data-table td {
+                    border: 1px solid #cbd5e1;
+                    padding: 1.5px 3.5px;
+                }
+                .data-table th {
+                    background-color: #334155;
+                    color: #ffffff;
+                    font-weight: bold;
+                    text-align: center;
+                }
+                .data-table td.day {
+                    text-align: center;
+                    font-weight: 500;
+                }
+                .data-table td.rain {
+                    text-align: right;
+                    font-variant-numeric: tabular-nums;
+                }
+                .total-row td {
+                    font-weight: bold;
+                    background-color: #f1f5f9;
+                    border-top: 1px solid #94a3b8;
+                    border-bottom: 2.5px double #1e293b;
+                }
+                
+                @media print {
+                    body {
+                        zoom: 82%; /* scale down to guarantee everything fits on one sheet */
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <!-- Repeating header -->
+            <div class="page-header">
+                <div class="logo-container">
+                    <img src="logo_reporte.png" alt="Gobierno de Corrientes">
+                </div>
+                <div class="report-title">REPORTE PLUVIOMÉTRICO DIARIO · MINISTERIO DE PRODUCCIÓN</div>
+            </div>
+
+            <!-- Main Print Table wrapper to repeat header cleanly -->
+            <table class="main-table">
+                <thead>
+                    <tr>
+                        <td>
+                            <div class="page-header-space"></div>
+                        </td>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>
+        `;
+        
+        // Loop departments and build horizontal month layouts
+        selectedDepts.forEach(dept => {
+            htmlContent += `
+                <div class="dept-container">
+                    <div class="dept-title">DEPARTAMENTO: ${dept}</div>
+                    <div class="months-row">
+            `;
+            
+            // Calculate max days among selected periods to align total rows visually
+            let maxDays = 0;
+            periods.forEach(p => {
+                const daysInMonth = new Date(p.year, p.month, 0).getDate();
+                if (daysInMonth > maxDays) {
+                    maxDays = daysInMonth;
+                }
+            });
+            
+            periods.forEach(p => {
+                const monthName = monthsNames[p.month - 1];
+                const daysInMonth = new Date(p.year, p.month, 0).getDate();
+                
+                htmlContent += `
+                    <div class="month-table-container">
+                        <div class="month-header">${monthName} ${p.year}</div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 35%;">Día</th>
+                                    <th style="width: 65%;">Lluvia (mm)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                let monthTotal = 0;
+                
+                // Write days 1 to maxDays
+                for (let day = 1; day <= maxDays; day++) {
+                    if (day <= daysInMonth) {
+                        const dayStr = day.toString().padStart(2, '0');
+                        const monthStr = p.month.toString().padStart(2, '0');
+                        const dateString = `${p.year}-${monthStr}-${dayStr}`;
+                        
+                        const dailyRecords = records.filter(r => r.department === dept && r.date === dateString);
+                        let dailyRain = 0;
+                        if (dailyRecords.length > 0) {
+                            dailyRain = dailyRecords.reduce((sum, r) => sum + r.rain, 0);
+                        }
+                        
+                        htmlContent += `
+                            <tr>
+                                <td class="day">${day}</td>
+                                <td class="rain">${dailyRain > 0 ? dailyRain.toFixed(1) : '0.0'}</td>
+                            </tr>
+                        `;
+                        monthTotal += dailyRain;
+                    } else {
+                        // Empty row for alignment
+                        htmlContent += `
+                            <tr>
+                                <td class="day">&nbsp;</td>
+                                <td class="rain">&nbsp;</td>
+                            </tr>
+                        `;
+                    }
+                }
+                
+                // Total Row
+                htmlContent += `
+                                <tr class="total-row">
+                                    <td>Total</td>
+                                    <td class="rain">${monthTotal.toFixed(1)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            });
+            
+            htmlContent += `
+                    </div>
+                </div>
+            `;
+        });
+        
+        htmlContent += `
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </body>
+        </html>
+        `;
+        
+        // Open print window
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        
+        // Wait for resources to load before printing
+        printWindow.onload = function() {
+            printWindow.focus();
+            printWindow.print();
+            showFloatingNotification('Informe de impresión generado.', 'success');
+        };
+        
+    } catch (err) {
+        console.error("Error generating printable report:", err);
+        showFloatingNotification('Error al generar el reporte imprimible.', 'warning');
+    }
+    hideLoading();
+}
+
+// ─── Auto-run Watcher for Server CSV file updates ───────────────────────
+let lastKnownCsvHeader = null;
+
+async function checkServerCsvUpdates() {
+    try {
+        const response = await fetch('plantilla_registro_lluvias.csv', { method: 'HEAD' });
+        if (response.ok) {
+            const currentHeader = response.headers.get('Last-Modified') || response.headers.get('Content-Length');
+            if (lastKnownCsvHeader && lastKnownCsvHeader !== currentHeader) {
+                lastKnownCsvHeader = currentHeader; // Update immediately
+                
+                const confirmUpdate = await showCustomConfirm({
+                    title: 'Nuevos Datos en el Servidor',
+                    bodyHtml: '<p>Se han cargado nuevos datos de lluvia en el servidor (archivo CSV modificado).</p><p>¿Deseas actualizar el dashboard para mostrar los nuevos registros?</p>',
+                    confirmText: 'Actualizar Dashboard',
+                    cancelText: 'Ignorar por ahora'
+                });
+                
+                if (confirmUpdate) {
+                    showLoading();
+                    // Clear local storage and reload from CSV & merge
+                    localStorage.removeItem(LOCAL_STORAGE_KEY);
+                    await loadRecords();
+                    applyFilters();
+                    updateReportYearsList();
+                    hideLoading();
+                    showFloatingNotification('Dashboard actualizado con éxito con los datos del servidor.', 'success');
+                }
+            } else if (!lastKnownCsvHeader) {
+                lastKnownCsvHeader = currentHeader;
+            }
+        }
+    } catch (e) {
+        console.warn("Could not check CSV updates on server:", e);
+    }
+}
+
+// Auto-check for server updates every 8 seconds
+setInterval(checkServerCsvUpdates, 8000);
+
 
