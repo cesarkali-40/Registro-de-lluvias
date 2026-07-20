@@ -268,8 +268,49 @@ function hideLoading() {
 
 // ─── Records Loading & Saving ──────────────────────────────────────────
 async function loadRecords() {
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored) {
+        records = JSON.parse(stored);
+        const isMock = records.length === 12 && records[0].date === '2026-05-15';
+        if (isMock) {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            return await loadRecords();
+        }
+        
+        const hasLaterYears = records.some(r => r.date.startsWith('2024') || r.date.startsWith('2025'));
+        if (!hasLaterYears) {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            return await loadRecords();
+        }
+        
+        migrateRecords();
+        removeInsignificantRainRecords();
+        await mergeCsvRecordsIntoStorage();
+    } else {
+        try {
+            const response = await fetch('plantilla_registro_lluvias.csv');
+            if (response.ok) {
+                const csvText = await response.text();
+                const parsed = parseCsvContent(csvText);
+                if (parsed && parsed.length > 0) {
+                    records = parsed;
+                } else {
+                    records = [...MOCK_DATA];
+                }
+            } else {
+                records = [...MOCK_DATA];
+            }
+        } catch (e) {
+            console.error("Error fetching plantilla_registro_lluvias.csv, using mock data:", e);
+            records = [...MOCK_DATA];
+        }
+        migrateRecords();
+        removeInsignificantRainRecords();
+        saveRecordsToStorage();
+    }
+
+    // Now merge Google Sheets data silently
     const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
-    
     try {
         const response = await fetch(googleSheetUrl);
         if (response.ok) {
@@ -277,7 +318,10 @@ async function loadRecords() {
             if (!text.includes('google-signin') && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
                 const parsed = parseCsvContent(text);
                 if (parsed && parsed.length > 0) {
-                    records = parsed.map(r => {
+                    let addedCount = 0;
+                    const existingKeys = new Set(records.map(r => `${r.date}|${r.municipality}|${parseFloat(r.rain).toFixed(1)}`));
+                    
+                    parsed.forEach(r => {
                         let dept = r.department;
                         if (!dept && r.municipality) {
                             for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
@@ -287,28 +331,35 @@ async function loadRecords() {
                                 }
                             }
                         }
-                        return {
-                            id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                            date: (r.date || '').trim(),
-                            department: (dept || 'Capital').trim(),
-                            municipality: (r.municipality || '').trim(),
-                            rain: parseFloat(r.rain) || 0,
-                            lat: parseFloat(r.lat) || 0,
-                            lng: parseFloat(r.lng) || 0
-                        };
+                        
+                        const key = `${(r.date || '').trim()}|${(r.municipality || '').trim()}|${parseFloat(r.rain || 0).toFixed(1)}`;
+                        if (!existingKeys.has(key)) {
+                            records.push({
+                                id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                                date: (r.date || '').trim(),
+                                department: (dept || 'Capital').trim(),
+                                municipality: (r.municipality || '').trim(),
+                                rain: parseFloat(r.rain) || 0,
+                                lat: parseFloat(r.lat) || 0,
+                                lng: parseFloat(r.lng) || 0
+                            });
+                            addedCount++;
+                        }
                     });
-                    migrateRecords();
-                    removeInsignificantRainRecords();
-                    saveRecordsToStorage();
-                    console.log("Loaded data successfully from Google Sheets.");
-                    return;
+                    
+                    if (addedCount > 0) {
+                        migrateRecords();
+                        removeInsignificantRainRecords();
+                        saveRecordsToStorage();
+                        console.log(`Merged ${addedCount} new records from Google Sheets.`);
+                    }
                 }
             } else {
-                console.warn("Google Sheet is private or returned HTML login page. Falling back to local data.");
+                console.warn("Google Sheet is private or returned HTML login page. Skipping merge.");
             }
         }
     } catch (e) {
-        console.warn("Failed to fetch from Google Sheets, trying fallback:", e);
+        console.warn("Failed to fetch/merge from Google Sheets:", e);
     }
 
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -1497,15 +1548,19 @@ function parseCsvContent(csvText) {
         const latVal = colIdx.lat !== -1 ? row[colIdx.lat] : row[4];
         const lngVal = colIdx.lng !== -1 ? row[colIdx.lng] : row[5];
 
-        if (dateVal && munVal && isSignificantRain(rainVal)) {
+        const parsedRain = rainVal ? parseFloat(rainVal.toString().replace(',', '.')) : 0;
+        const parsedLat = latVal ? parseFloat(latVal.toString().replace(',', '.')) : 0;
+        const parsedLng = lngVal ? parseFloat(lngVal.toString().replace(',', '.')) : 0;
+
+        if (dateVal && munVal && !isNaN(parsedRain) && parsedRain >= MIN_RAIN_RECORD_MM) {
             results.push({
                 id: idVal,
                 date: dateVal.trim(),
                 department: deptVal ? deptVal.trim() : undefined,
                 municipality: munVal.trim(),
-                rain: parseFloat(rainVal),
-                lat: parseFloat(latVal),
-                lng: parseFloat(lngVal)
+                rain: parsedRain,
+                lat: parsedLat,
+                lng: parsedLng
             });
         }
     }
@@ -1555,7 +1610,8 @@ function migrateRecords() {
 }
 
 function isSignificantRain(value) {
-    const rain = parseFloat(value);
+    if (value === undefined || value === null) return false;
+    const rain = parseFloat(value.toString().replace(',', '.'));
     return !isNaN(rain) && rain >= MIN_RAIN_RECORD_MM;
 }
 
