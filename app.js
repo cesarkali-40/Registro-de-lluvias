@@ -244,6 +244,7 @@ async function initApp() {
     showLoading();
     try {
         await loadRecords();
+        await syncGoogleSheetsSilently();
         populateDropdowns();
         setupDateInputs();
         initFormMap();
@@ -1614,78 +1615,143 @@ function cleanGoogleSheetsUrl(url) {
     return url;
 }
 
+async function syncGoogleSheetsSilently() {
+    const savedUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY) || 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
+    
+    try {
+        let importedRecords = [];
+        const isAppsScript = savedUrl.includes('script.google.com');
+        
+        if (isAppsScript) {
+            const res = await fetch(savedUrl);
+            if (!res.ok) return;
+            const json = await res.json();
+            if (json && json.ok && Array.isArray(json.records)) {
+                importedRecords = json.records;
+            } else {
+                return;
+            }
+        } else {
+            const res = await fetch(savedUrl);
+            if (!res.ok) return;
+            const text = await res.text();
+            if (text.includes('google-signin') || text.includes('<!DOCTYPE') || text.includes('<html')) {
+                console.warn("Google Sheets returned HTML/login page. The spreadsheet must be shared as 'Anyone with the link can view'.");
+                return;
+            }
+            importedRecords = parseCsvContent(text);
+        }
+        
+        if (!Array.isArray(importedRecords) || importedRecords.length === 0) return;
+        
+        const validRecords = importedRecords.filter(r => {
+            return r.date && r.municipality && isSignificantRain(r.rain) && !isNaN(parseFloat(r.lat)) && !isNaN(parseFloat(r.lng));
+        }).map(r => {
+            let dept = r.department;
+            if (!dept) {
+                for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
+                    if (deptData.municipalities[r.municipality.trim()]) {
+                        dept = deptName;
+                        break;
+                    }
+                }
+            }
+            return {
+                id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                date: r.date.trim(),
+                department: (dept || 'Capital').trim(),
+                municipality: r.municipality.trim(),
+                rain: parseFloat(r.rain),
+                lat: parseFloat(r.lat),
+                lng: parseFloat(r.lng)
+            };
+        });
+
+        if (validRecords.length > 0) {
+            let added = 0;
+            validRecords.forEach(importRec => {
+                const duplicate = records.some(r => r.id === importRec.id || 
+                    (r.date === importRec.date && r.municipality === importRec.municipality && Math.abs(r.rain - importRec.rain) < 0.01));
+                if (!duplicate) {
+                    records.push(importRec);
+                    added++;
+                }
+            });
+            if (added > 0) {
+                saveRecordsToStorage();
+            }
+            console.log(`Sincronización inicial con Google Sheets completada: ${added} nuevos registros añadidos.`);
+        }
+    } catch (e) {
+        console.warn("Error during silent Google Sheets sync:", e);
+    }
+}
+
 async function syncGoogleSheets() {
     let savedUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY);
+    const defaultUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
+    let urlToFetch = savedUrl || defaultUrl;
     
-    if (!savedUrl) {
-        const result = await showCustomPrompt({
-            title: 'Sincronizar Google Sheets',
-            bodyHtml: `
-                <p>Ingresa el enlace de tu planilla de Google Sheets. Puedes copiar:</p>
-                <ol>
-                    <li>El enlace de compartir: <code>https://docs.google.com/spreadsheets/d/.../edit?usp=sharing</code> (asegúrate de que esté configurado como <strong>"Cualquier persona con el enlace puede ver"</strong>).</li>
-                    <li>O el enlace publicado: <strong>Archivo -> Compartir -> Publicar en la web</strong> (elige formato <strong>Valores separados por comas (.csv)</strong>).</li>
-                </ol>
-            `,
-            placeholder: 'Pega tu enlace de Google Sheets aquí...',
-            confirmText: 'Vincular y Sincronizar',
-            cancelText: 'Cancelar'
-        });
-        
-        if (result.action !== 'confirm' || !result.value) return;
-        
-        const cleaned = cleanGoogleSheetsUrl(result.value);
+    const option = await showCustomPrompt({
+        title: 'Sincronización de Google Sheets',
+        bodyHtml: `
+            <p>${savedUrl ? 'La sincronización está activa con tu planilla vinculada:' : 'Se sincronizará con la planilla de Google Sheets por defecto del proyecto:'}</p>
+            <p style="word-break: break-all; font-family: monospace; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; font-size: 0.8rem;">${urlToFetch}</p>
+            <p style="margin-top: 10px;">¿Qué deseas hacer?</p>
+        `,
+        placeholder: 'Pega un nuevo enlace de Google Sheets aquí si deseas cambiarlo...',
+        defaultValue: savedUrl || '',
+        confirmText: savedUrl ? 'Actualizar Enlace' : 'Vincular Nuevo Enlace',
+        cancelText: 'Sincronizar Ahora',
+        showDelete: !!savedUrl,
+        deleteText: 'Restablecer planilla por defecto'
+    });
+    
+    if (option.action === 'delete') {
+        localStorage.removeItem(GOOGLE_SHEETS_URL_KEY);
+        showFloatingNotification('Se ha restablecido la planilla de Google Sheets por defecto.', 'info');
+        urlToFetch = defaultUrl;
+    } else if (option.action === 'confirm' && option.value) {
+        const cleaned = cleanGoogleSheetsUrl(option.value);
         if (!cleaned.startsWith('http')) {
             showFloatingNotification('URL no válida. Debe comenzar con http/https.', 'warning');
             return;
         }
         localStorage.setItem(GOOGLE_SHEETS_URL_KEY, cleaned);
-        savedUrl = cleaned;
+        urlToFetch = cleaned;
+        showFloatingNotification('Enlace de Google Sheets actualizado.', 'success');
+    } else if (option.action === 'cancel') {
+        // Just sync now
     } else {
-        const option = await showCustomPrompt({
-            title: 'Sincronización de Google Sheets',
-            bodyHtml: `
-                <p>La sincronización está activa con la siguiente URL vinculada:</p>
-                <p style="word-break: break-all; font-family: monospace; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; font-size: 0.8rem;">${savedUrl}</p>
-                <p style="margin-top: 10px;">¿Qué deseas hacer?</p>
-            `,
-            placeholder: 'Pegue un nuevo enlace si desea cambiarlo...',
-            defaultValue: savedUrl,
-            confirmText: 'Actualizar Enlace',
-            cancelText: 'Sincronizar Ahora',
-            showDelete: true,
-            deleteText: 'Desvincular Planilla'
-        });
-        
-        if (option.action === 'delete') {
-            localStorage.removeItem(GOOGLE_SHEETS_URL_KEY);
-            showFloatingNotification('Google Sheets desvinculado.', 'info');
-            return;
-        } else if (option.action === 'confirm' && option.value) {
-            const cleaned = cleanGoogleSheetsUrl(option.value);
-            if (!cleaned.startsWith('http')) {
-                showFloatingNotification('URL no válida. Debe comenzar con http/https.', 'warning');
-                return;
-            }
-            localStorage.setItem(GOOGLE_SHEETS_URL_KEY, cleaned);
-            savedUrl = cleaned;
-            showFloatingNotification('Enlace de Google Sheets actualizado.', 'success');
-        } else if (option.action === 'cancel') {
-            // "Cancelar" means just Sync Now with the existing URL
-        } else {
-            return; // Exit
-        }
+        return; // User closed modal
     }
     
     showLoading();
     try {
-        const res = await fetch(savedUrl);
-        if (!res.ok) throw new Error('No se pudo descargar el archivo. Verifica que la planilla esté compartida correctamente ("Cualquier persona con el enlace puede ver").');
-        const csvText = await res.text();
+        let importedRecords = [];
+        const isAppsScript = urlToFetch.includes('script.google.com');
         
-        const importedRecords = parseCsvContent(csvText);
+        if (isAppsScript) {
+            const res = await fetch(urlToFetch);
+            if (!res.ok) throw new Error('No se pudo establecer conexión con la Web App de Google Apps Script.');
+            const json = await res.json();
+            if (json && json.ok && Array.isArray(json.records)) {
+                importedRecords = json.records;
+            } else {
+                throw new Error(json.error || 'Respuesta inválida de la Web App.');
+            }
+        } else {
+            const res = await fetch(urlToFetch);
+            if (!res.ok) throw new Error('No se pudo descargar el archivo. Verifica que la planilla esté compartida correctamente ("Cualquier persona con el enlace puede ver").');
+            const text = await res.text();
+            if (text.includes('google-signin') || text.includes('<!DOCTYPE') || text.includes('<html')) {
+                throw new Error('La planilla de Google Sheets es privada. Debes compartirla como "Cualquier persona con el enlace puede ver" o usar la Web App de Google Apps Script.');
+            }
+            importedRecords = parseCsvContent(text);
+        }
+        
         if (!Array.isArray(importedRecords) || importedRecords.length === 0) {
-            throw new Error('El archivo no contiene registros de lluvias válidos.');
+            throw new Error('El origen de datos no contiene registros de lluvias válidos.');
         }
         
         const validRecords = importedRecords.filter(r => {
