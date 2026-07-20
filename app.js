@@ -244,7 +244,6 @@ async function initApp() {
     showLoading();
     try {
         await loadRecords();
-        await syncGoogleSheetsSilently();
         populateDropdowns();
         setupDateInputs();
         initFormMap();
@@ -269,17 +268,58 @@ function hideLoading() {
 
 // ─── Records Loading & Saving ──────────────────────────────────────────
 async function loadRecords() {
+    const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
+    
+    try {
+        const response = await fetch(googleSheetUrl);
+        if (response.ok) {
+            const text = await response.text();
+            if (!text.includes('google-signin') && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
+                const parsed = parseCsvContent(text);
+                if (parsed && parsed.length > 0) {
+                    records = parsed.map(r => {
+                        let dept = r.department;
+                        if (!dept && r.municipality) {
+                            for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
+                                if (deptData.municipalities[r.municipality.trim()]) {
+                                    dept = deptName;
+                                    break;
+                                }
+                            }
+                        }
+                        return {
+                            id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                            date: (r.date || '').trim(),
+                            department: (dept || 'Capital').trim(),
+                            municipality: (r.municipality || '').trim(),
+                            rain: parseFloat(r.rain) || 0,
+                            lat: parseFloat(r.lat) || 0,
+                            lng: parseFloat(r.lng) || 0
+                        };
+                    });
+                    migrateRecords();
+                    removeInsignificantRainRecords();
+                    saveRecordsToStorage();
+                    console.log("Loaded data successfully from Google Sheets.");
+                    return;
+                }
+            } else {
+                console.warn("Google Sheet is private or returned HTML login page. Falling back to local data.");
+            }
+        }
+    } catch (e) {
+        console.warn("Failed to fetch from Google Sheets, trying fallback:", e);
+    }
+
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) {
         records = JSON.parse(stored);
-        // If the stored data is only the default 12 mock records, upgrade/replace it with the 2023 CSV data
         const isMock = records.length === 12 && records[0].date === '2026-05-15';
         if (isMock) {
             localStorage.removeItem(LOCAL_STORAGE_KEY);
             return await loadRecords();
         }
         
-        // If the stored data lacks 2024 or 2025 records (which we just added to the CSV), refresh it from the CSV
         const hasLaterYears = records.some(r => r.date.startsWith('2024') || r.date.startsWith('2025'));
         if (!hasLaterYears) {
             localStorage.removeItem(LOCAL_STORAGE_KEY);
@@ -346,7 +386,7 @@ async function mergeCsvRecordsIntoStorage() {
 
 function saveRecordsToStorage() {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
-    
+
     // Auto-save to disk via local server API
     fetch('/api/save', {
         method: 'POST',
@@ -355,38 +395,38 @@ function saveRecordsToStorage() {
         },
         body: JSON.stringify(records)
     })
-    .then(response => {
-        if (!response.ok) {
-            console.warn("Server responded with error while auto-saving CSV.");
-        }
-    })
-    .catch(err => {
-        console.warn("Local server auto-save offline or unavailable:", err);
-    });
+        .then(response => {
+            if (!response.ok) {
+                console.warn("Server responded with error while auto-saving CSV.");
+            }
+        })
+        .catch(err => {
+            console.warn("Local server auto-save offline or unavailable:", err);
+        });
 }
 
 // ─── Dropdowns & Date Setup ─────────────────────────────────────────────
 function populateDropdowns() {
     const formDeptSelect = document.getElementById('formDepartamento');
     const filterDeptSelect = document.getElementById('filterDepartamento');
-    
+
     // Sort departments alphabetically
     const depts = Object.keys(DEPARTMENTS_DATA).sort();
-    
+
     depts.forEach(dept => {
         // Form option
         const optForm = document.createElement('option');
         optForm.value = dept;
         optForm.textContent = dept;
         formDeptSelect.appendChild(optForm);
-        
+
         // Filter option
         const optFilter = document.createElement('option');
         optFilter.value = dept;
         optFilter.textContent = dept;
         filterDeptSelect.appendChild(optFilter);
     });
-    
+
     // Initially populate all municipalities (and enable selects)
     updateFormMunicipalities('');
     updateFilterMunicipalities('TODOS');
@@ -395,13 +435,13 @@ function populateDropdowns() {
 function setupDateInputs() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('formDate').value = today;
-    
+
     // Determine the date range of records
     if (records.length > 0) {
         const dates = records.map(r => new Date(r.date));
         const minDate = new Date(Math.min(...dates)).toISOString().split('T')[0];
         const maxDate = new Date(Math.max(...dates)).toISOString().split('T')[0];
-        
+
         document.getElementById('filterDesde').value = minDate;
         document.getElementById('filterHasta').value = maxDate;
     } else {
@@ -419,14 +459,14 @@ function initFormMap() {
         zoomControl: true,
         attributionControl: false
     }).setView([PROVINCE_CENTER.lat, PROVINCE_CENTER.lng], 6);
-    
+
     // Add standard OpenStreetMap tiles (CSS filters in styles.css will turn it dark)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19
     }).addTo(formMapInstance);
-    
+
     // Listen to click events on map to place/move marker
-    formMapInstance.on('click', function(e) {
+    formMapInstance.on('click', function (e) {
         setFormMarker(e.latlng.lat, e.latlng.lng);
     });
 }
@@ -437,14 +477,14 @@ function initDashboardMap() {
         zoomControl: true,
         attributionControl: false
     }).setView([PROVINCE_CENTER.lat, PROVINCE_CENTER.lng], 7);
-    
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19
     }).addTo(dashboardMapInstance);
-    
+
     // Add Custom Legend to Map
     const legend = L.control({ position: 'bottomright' });
-    legend.onAdd = function() {
+    legend.onAdd = function () {
         const div = L.DomUtil.create('div', 'map-legend');
         div.innerHTML = `
             <h4>Intensidad de Lluvia</h4>
@@ -462,11 +502,11 @@ function initDashboardMap() {
 function setFormMarker(lat, lng) {
     const latFixed = lat.toFixed(6);
     const lngFixed = lng.toFixed(6);
-    
+
     document.getElementById('formLat').value = latFixed;
     document.getElementById('formLng').value = lngFixed;
     document.getElementById('coordsDisplay').textContent = `Coordenadas: Lat ${latFixed}, Lng ${lngFixed}`;
-    
+
     // Custom glowing cyan pulse icon
     const customPulseIcon = L.divIcon({
         className: 'custom-pulse-marker',
@@ -474,15 +514,15 @@ function setFormMarker(lat, lng) {
         iconSize: [16, 16],
         iconAnchor: [8, 8]
     });
-    
+
     if (formMarker) {
         formMarker.setLatLng([lat, lng]);
     } else {
-        formMarker = L.marker([lat, lng], { 
+        formMarker = L.marker([lat, lng], {
             draggable: true,
             icon: customPulseIcon
         }).addTo(formMapInstance);
-        formMarker.on('dragend', function(e) {
+        formMarker.on('dragend', function (e) {
             const pos = formMarker.getLatLng();
             setFormMarker(pos.lat, pos.lng);
         });
@@ -495,7 +535,7 @@ function applyFilters() {
     const hasta = document.getElementById('filterHasta').value;
     const departamento = document.getElementById('filterDepartamento').value;
     const municipio = document.getElementById('filterMunicipio').value;
-    
+
     filteredRecords = records.filter(r => {
         // Date check
         if (desde && r.date < desde) return false;
@@ -506,10 +546,10 @@ function applyFilters() {
         if (municipio !== 'TODOS' && r.municipality !== municipio) return false;
         return true;
     });
-    
+
     // Sort chronologically
     filteredRecords.sort((a, b) => new Date(a.date) - new Date(b.date));
-    
+
     currentTablePage = 1; // Reset table page to first page
     updateDashboardUI();
 }
@@ -533,11 +573,11 @@ function updateKPIs() {
         document.getElementById('kpiRegistros').textContent = '0';
         return;
     }
-    
+
     const total = filteredRecords.reduce((sum, r) => sum + r.rain, 0);
     const count = filteredRecords.length;
     const average = total / count;
-    
+
     // Find record max
     let maxRecord = filteredRecords[0];
     filteredRecords.forEach(r => {
@@ -545,7 +585,7 @@ function updateKPIs() {
             maxRecord = r;
         }
     });
-    
+
     document.getElementById('kpiAcumulada').textContent = total.toFixed(1);
     document.getElementById('kpiPromedio').textContent = average.toFixed(1);
     document.getElementById('kpiMaxima').textContent = maxRecord.rain.toFixed(1);
@@ -557,7 +597,7 @@ function updateHeaderStats() {
     const totalRain = records.reduce((sum, r) => sum + r.rain, 0);
     document.getElementById('headerTotalRain').textContent = `${totalRain.toFixed(1)} mm`;
     document.getElementById('headerTotalCount').textContent = records.length;
-    
+
     if (records.length > 0) {
         // Get the latest date
         const sorted = [...records].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -572,12 +612,12 @@ function drawDashboardMap() {
     // Clear old layers
     dashboardMapLayers.forEach(layer => dashboardMapInstance.removeLayer(layer));
     dashboardMapLayers = [];
-    
+
     filteredRecords.forEach(rec => {
         // Determine circle color & radius based on rainfall intensity
         let color = '#22d3ee'; // light cyan for drizzle
         let radius = 8000;     // meters
-        
+
         if (rec.rain >= 100) {
             color = '#fb7185'; // rose/coral for extreme rain
             radius = 22000;
@@ -588,7 +628,7 @@ function drawDashboardMap() {
             color = '#60a5fa'; // blue for moderate rain
             radius = 12000;
         }
-        
+
         const circle = L.circle([rec.lat, rec.lng], {
             color: color,
             fillColor: color,
@@ -596,7 +636,7 @@ function drawDashboardMap() {
             radius: radius,
             weight: 2
         });
-        
+
         const popupContent = `
             <strong>${rec.municipality}</strong> (${rec.department})<br>
             📅 Fecha: ${formatDateString(rec.date)}<br>
@@ -604,12 +644,12 @@ function drawDashboardMap() {
             📍 Lat: ${rec.lat.toFixed(4)}, Lng: ${rec.lng.toFixed(4)}<br>
             <button class="btn-danger" style="margin-top:8px; padding: 4px 8px; font-size: 0.65rem;" onclick="deleteRecord('${rec.id}')">Borrar Registro</button>
         `;
-        
+
         circle.bindPopup(popupContent);
         circle.addTo(dashboardMapInstance);
         dashboardMapLayers.push(circle);
     });
-    
+
     // Adjust view bounds to fit all markers if present, otherwise center province
     if (dashboardMapLayers.length > 0) {
         const group = new L.featureGroup(dashboardMapLayers);
@@ -622,17 +662,17 @@ function drawDashboardMap() {
 // ─── Rendering Chart.js Charts ──────────────────────────────────────────
 function renderHistoryChart() {
     const ctx = document.getElementById('chartRainHistory').getContext('2d');
-    
+
     // Group rain records by date
     const dateGroups = {};
     filteredRecords.forEach(r => {
         dateGroups[r.date] = (dateGroups[r.date] || 0) + r.rain;
     });
-    
+
     const dates = Object.keys(dateGroups).sort();
     const dataValues = dates.map(d => dateGroups[d]);
     const formattedDates = dates.map(d => formatDateStringShort(d));
-    
+
     const chartData = {
         labels: formattedDates.length > 0 ? formattedDates : ['Sin datos'],
         datasets: [{
@@ -648,7 +688,7 @@ function renderHistoryChart() {
             pointHoverRadius: 7,
         }]
     };
-    
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
@@ -677,7 +717,7 @@ function renderHistoryChart() {
             }
         }
     };
-    
+
     if (charts.history) {
         charts.history.destroy();
     }
@@ -690,22 +730,22 @@ function renderHistoryChart() {
 
 function renderMunicipalityChart() {
     const ctx = document.getElementById('chartRainByMunicipality').getContext('2d');
-    
+
     // Group and sum by municipality (showing department too)
     const munGroups = {};
     filteredRecords.forEach(r => {
         const label = `${r.municipality} (${r.department})`;
         munGroups[label] = (munGroups[label] || 0) + r.rain;
     });
-    
+
     // Sort by rain descending and take top 10
     const sortedMuns = Object.entries(munGroups)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10);
-        
+
     const labels = sortedMuns.map(m => m[0]);
     const dataValues = sortedMuns.map(m => m[1].toFixed(1));
-    
+
     const chartData = {
         labels: labels.length > 0 ? labels : ['Sin datos'],
         datasets: [{
@@ -718,7 +758,7 @@ function renderMunicipalityChart() {
             barThickness: 16
         }]
     };
-    
+
     const chartOptions = {
         indexAxis: 'y',
         responsive: true,
@@ -747,7 +787,7 @@ function renderMunicipalityChart() {
             }
         }
     };
-    
+
     if (charts.municipality) {
         charts.municipality.destroy();
     }
@@ -764,9 +804,9 @@ function populateTable() {
     const emptyMsg = document.getElementById('emptyTableMessage');
     const paginationContainer = document.getElementById('tablePagination');
     tbody.innerHTML = '';
-    
+
     const searchQuery = (document.getElementById('tableSearch')?.value || '').toLowerCase().trim();
-    
+
     // Filter by search query (department or municipality or date or rain value)
     const searchedRecords = filteredRecords.filter(rec => {
         if (!searchQuery) return true;
@@ -776,27 +816,27 @@ function populateTable() {
         const rainMatch = rec.rain.toString().includes(searchQuery);
         return deptMatch || munMatch || dateMatch || rainMatch;
     });
-    
+
     if (searchedRecords.length === 0) {
         emptyMsg.style.display = 'block';
         if (paginationContainer) paginationContainer.style.display = 'none';
         return;
     }
     emptyMsg.style.display = 'none';
-    
+
     // Sort records descending by date for the table (latest records first)
     const tableSortedRecords = [...searchedRecords].reverse();
-    
+
     // Calculate pages
     const totalPages = Math.ceil(tableSortedRecords.length / RECORDS_PER_PAGE);
     if (currentTablePage > totalPages) {
         currentTablePage = Math.max(1, totalPages);
     }
-    
+
     const startIdx = (currentTablePage - 1) * RECORDS_PER_PAGE;
     const endIdx = startIdx + RECORDS_PER_PAGE;
     const pageRecords = tableSortedRecords.slice(startIdx, endIdx);
-    
+
     // Update pagination info
     const showingFrom = startIdx + 1;
     const showingTo = Math.min(endIdx, tableSortedRecords.length);
@@ -805,7 +845,7 @@ function populateTable() {
     if (paginationInfoEl) {
         paginationInfoEl.textContent = infoText;
     }
-    
+
     pageRecords.forEach(rec => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -821,7 +861,7 @@ function populateTable() {
         `;
         tbody.appendChild(tr);
     });
-    
+
     renderTablePagination(tableSortedRecords.length, currentTablePage);
 }
 
@@ -829,7 +869,7 @@ function renderTablePagination(totalItems, currentPage) {
     const container = document.getElementById('paginationButtons');
     const paginationEl = document.getElementById('tablePagination');
     if (!container || !paginationEl) return;
-    
+
     const totalPages = Math.ceil(totalItems / RECORDS_PER_PAGE);
     if (totalPages <= 1) {
         paginationEl.style.display = 'none';
@@ -837,7 +877,7 @@ function renderTablePagination(totalItems, currentPage) {
     }
     paginationEl.style.display = 'flex';
     container.innerHTML = '';
-    
+
     // Helper to create a button
     const createBtn = (text, pageNum, isActive = false, isDisabled = false) => {
         const btn = document.createElement('button');
@@ -852,15 +892,15 @@ function renderTablePagination(totalItems, currentPage) {
         }
         return btn;
     };
-    
+
     // Previous page buttons
     container.appendChild(createBtn('«', 1, false, currentPage === 1));
     container.appendChild(createBtn('‹', currentPage - 1, false, currentPage === 1));
-    
+
     // Determine which page numbers to show
     const pageWindow = 2; // number of pages to show before and after current
     const pages = [];
-    
+
     for (let i = 1; i <= totalPages; i++) {
         if (i === 1 || i === totalPages || (i >= currentPage - pageWindow && i <= currentPage + pageWindow)) {
             pages.push(i);
@@ -868,7 +908,7 @@ function renderTablePagination(totalItems, currentPage) {
             pages.push('...');
         }
     }
-    
+
     pages.forEach(p => {
         if (p === '...') {
             const span = document.createElement('span');
@@ -880,7 +920,7 @@ function renderTablePagination(totalItems, currentPage) {
             container.appendChild(createBtn(p.toString(), p, p === currentPage));
         }
     });
-    
+
     // Next page buttons
     container.appendChild(createBtn('›', currentPage + 1, false, currentPage === totalPages));
     container.appendChild(createBtn('»', totalPages, false, currentPage === totalPages));
@@ -889,10 +929,10 @@ function renderTablePagination(totalItems, currentPage) {
 // ─── Interactive Event Listeners ────────────────────────────────────────
 function wireEvents() {
     // Dropdown change in form updates Municipality choices and centers Map
-    document.getElementById('formDepartamento').addEventListener('change', function(e) {
+    document.getElementById('formDepartamento').addEventListener('change', function (e) {
         const val = e.target.value;
         updateFormMunicipalities(val);
-        
+
         if (DEPARTMENTS_DATA[val]) {
             const coords = DEPARTMENTS_DATA[val].center;
             // Center the form map on the department and zoom in
@@ -901,12 +941,12 @@ function wireEvents() {
             setFormMarker(coords.lat, coords.lng);
         }
     });
-    
+
     // Dropdown change in form municipality updates Map Marker & auto-selects Department if empty
-    document.getElementById('formMunicipio').addEventListener('change', function(e) {
+    document.getElementById('formMunicipio').addEventListener('change', function (e) {
         const munVal = e.target.value;
         let deptVal = document.getElementById('formDepartamento').value;
-        
+
         if (!deptVal && munVal) {
             // Find department by municipality
             for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
@@ -919,7 +959,7 @@ function wireEvents() {
                 }
             }
         }
-        
+
         if (deptVal && munVal && DEPARTMENTS_DATA[deptVal]?.municipalities[munVal]) {
             const coords = DEPARTMENTS_DATA[deptVal].municipalities[munVal];
             formMapInstance.setView([coords.lat, coords.lng], 12);
@@ -928,22 +968,22 @@ function wireEvents() {
     });
 
     document.getElementById('formSourceType').addEventListener('change', updateSourceDetailVisibility);
-    
+
     // Submit Button in Form
     document.getElementById('btnSubmit').addEventListener('click', handleFormSubmit);
-    
+
     // Cancel Edit Button
     document.getElementById('btnCancelEdit').addEventListener('click', cancelEdit);
-    
+
     // Filters Event Listeners
-    document.getElementById('filterDepartamento').addEventListener('change', function(e) {
+    document.getElementById('filterDepartamento').addEventListener('change', function (e) {
         updateFilterMunicipalities(e.target.value);
         applyFilters();
     });
-    document.getElementById('filterMunicipio').addEventListener('change', function(e) {
+    document.getElementById('filterMunicipio').addEventListener('change', function (e) {
         const munVal = e.target.value;
         let deptVal = document.getElementById('filterDepartamento').value;
-        
+
         if (munVal !== 'TODOS' && deptVal === 'TODOS') {
             // Find department for selected municipality
             for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
@@ -959,13 +999,13 @@ function wireEvents() {
     document.getElementById('filterDesde').addEventListener('change', applyFilters);
     document.getElementById('filterHasta').addEventListener('change', applyFilters);
     document.getElementById('btnResetFilters').addEventListener('click', resetFilters);
-    
+
     // Search Box Table Filter
     document.getElementById('tableSearch').addEventListener('input', () => {
         currentTablePage = 1;
         populateTable();
     });
-    
+
     // Data Import / Export Listeners
     document.getElementById('btnExportJson').addEventListener('click', exportToJson);
     document.getElementById('btnExportCsv').addEventListener('click', exportToCsv);
@@ -1019,7 +1059,7 @@ function setFormSource(source = '') {
 
 function handleFormSubmit(e) {
     e.preventDefault();
-    
+
     const departamento = document.getElementById('formDepartamento').value;
     const municipio = document.getElementById('formMunicipio').value;
     const rainVal = parseFloat(document.getElementById('formRain').value);
@@ -1027,7 +1067,7 @@ function handleFormSubmit(e) {
     const latVal = parseFloat(document.getElementById('formLat').value);
     const lngVal = parseFloat(document.getElementById('formLng').value);
     const sourceVal = getFormSource();
-    
+
     // Validations
     if (!departamento) {
         showFloatingNotification('Por favor, selecciona un departamento.', 'warning');
@@ -1049,7 +1089,7 @@ function handleFormSubmit(e) {
         showFloatingNotification('Haz clic en el mapa del formulario para marcar el lugar.', 'warning');
         return;
     }
-    
+
     if (editingRecordId) {
         // We are in edit mode
         const index = records.findIndex(r => r.id === editingRecordId);
@@ -1068,7 +1108,7 @@ function handleFormSubmit(e) {
             backupRecordToGoogleSheets(records[index], 'update');
             showFloatingNotification('Registro actualizado con éxito.', 'success');
         }
-        
+
         // Reset editing state
         editingRecordId = null;
         document.getElementById('formTitle').textContent = 'Nuevo Registro de Lluvia';
@@ -1087,18 +1127,18 @@ function handleFormSubmit(e) {
             lng: lngVal,
             source: sourceVal
         };
-        
+
         // Push & save
         records.push(newRecord);
         saveRecordsToStorage();
         backupRecordToGoogleSheets(newRecord, 'create');
         showFloatingNotification('Medición registrada con éxito.', 'success');
     }
-    
+
     // Reset form fields but keep the date for speed entry
     document.getElementById('formRain').value = '';
     setFormSource('');
-    
+
     // Clear the form marker
     if (formMarker) {
         formMapInstance.removeLayer(formMarker);
@@ -1107,13 +1147,13 @@ function handleFormSubmit(e) {
     document.getElementById('formLat').value = '';
     document.getElementById('formLng').value = '';
     document.getElementById('coordsDisplay').textContent = 'Coordenadas: No seleccionadas';
-    
+
     // Reset selections and restore all municipalities
     document.getElementById('formDepartamento').value = '';
     updateFormMunicipalities('');
-    
+
     formMapInstance.setView([PROVINCE_CENTER.lat, PROVINCE_CENTER.lng], 6);
-    
+
     // Update filters bounds and apply
     setupDateInputs();
     applyFilters();
@@ -1121,14 +1161,14 @@ function handleFormSubmit(e) {
 }
 
 // ─── Delete Record Handler ──────────────────────────────────────────────
-window.deleteRecord = async function(id) {
+window.deleteRecord = async function (id) {
     const confirmDelete = await showCustomConfirm({
         title: 'Eliminar Registro',
         bodyHtml: '<p>¿Estás seguro de que deseas eliminar este registro pluviométrico?</p><p style="color: var(--accent-rose); font-size: 0.8rem; margin-top: 8px;">Esta acción no se puede deshacer.</p>',
         confirmText: 'Eliminar',
         cancelText: 'Cancelar'
     });
-    
+
     if (confirmDelete) {
         const deletedRecord = records.find(r => r.id === id);
         records = records.filter(r => r.id !== id);
@@ -1181,7 +1221,7 @@ function showFloatingNotification(message, type = 'info') {
         container.style.gap = '10px';
         document.body.appendChild(container);
     }
-    
+
     const toast = document.createElement('div');
     toast.style.padding = '12px 20px';
     toast.style.borderRadius = '8px';
@@ -1193,7 +1233,7 @@ function showFloatingNotification(message, type = 'info') {
     toast.style.transform = 'translateY(10px)';
     toast.style.opacity = '0';
     toast.style.transition = 'all 0.3s ease';
-    
+
     // Choose colors based on notification type
     if (type === 'success') {
         toast.style.background = 'linear-gradient(135deg, #34d399 0%, #22d3ee 100%)';
@@ -1205,15 +1245,15 @@ function showFloatingNotification(message, type = 'info') {
         toast.style.background = 'linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%)';
         toast.innerText = 'ℹ️ ' + message;
     }
-    
+
     container.appendChild(toast);
-    
+
     // Trigger animation
     setTimeout(() => {
         toast.style.transform = 'translateY(0)';
         toast.style.opacity = '1';
     }, 10);
-    
+
     // Remove after 3.5 seconds
     setTimeout(() => {
         toast.style.transform = 'translateY(-10px)';
@@ -1225,49 +1265,49 @@ function showFloatingNotification(message, type = 'info') {
 }
 
 // ─── Record Editing Functions ───────────────────────────────────────────
-window.editRecord = function(id) {
+window.editRecord = function (id) {
     const rec = records.find(r => r.id === id);
     if (!rec) return;
-    
+
     editingRecordId = id;
-    
+
     // Fill the form fields
     document.getElementById('formDepartamento').value = rec.department || '';
     updateFormMunicipalities(rec.department, rec.municipality);
-    
+
     document.getElementById('formRain').value = rec.rain;
     document.getElementById('formDate').value = rec.date;
     setFormSource(rec.source || '');
-    
+
     // Center and zoom map on the record coords
     formMapInstance.setView([rec.lat, rec.lng], 13);
     setFormMarker(rec.lat, rec.lng);
-    
+
     // Update form headers & action buttons
     document.getElementById('formTitle').textContent = 'Editar Registro de Lluvia';
     document.getElementById('formDesc').textContent = 'Modifica los datos de la toma seleccionada';
     document.getElementById('btnSubmit').textContent = 'Guardar Cambios';
     document.getElementById('btnCancelEdit').style.display = 'block';
-    
+
     // Scroll form into view smoothly
     document.getElementById('rainForm').scrollIntoView({ behavior: 'smooth' });
-    
+
     showFloatingNotification('Modo edición activado. Modifique los campos del formulario.', 'info');
 };
 
 function cancelEdit() {
     editingRecordId = null;
-    
+
     // Clear fields
     document.getElementById('formRain').value = '';
     setFormSource('');
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('formDate').value = today;
     document.getElementById('formDepartamento').value = '';
-    
+
     // Reset municipalities to show all options
     updateFormMunicipalities('');
-    
+
     // Clear marker and reset map
     if (formMarker) {
         formMapInstance.removeLayer(formMarker);
@@ -1277,13 +1317,13 @@ function cancelEdit() {
     document.getElementById('formLng').value = '';
     document.getElementById('coordsDisplay').textContent = 'Coordenadas: No seleccionadas';
     formMapInstance.setView([PROVINCE_CENTER.lat, PROVINCE_CENTER.lng], 6);
-    
+
     // Reset headers & buttons
     document.getElementById('formTitle').textContent = 'Nuevo Registro de Lluvia';
     document.getElementById('formDesc').textContent = 'Carga de datos pluviométricos de la toma';
     document.getElementById('btnSubmit').textContent = 'Registrar Lluvia';
     document.getElementById('btnCancelEdit').style.display = 'none';
-    
+
     showFloatingNotification('Edición cancelada.', 'info');
 }
 
@@ -1318,10 +1358,10 @@ function exportToCsv() {
         r.lat,
         r.lng
     ]);
-    
-    const csvContent = "data:text/csv;charset=utf-8," 
+
+    const csvContent = "data:text/csv;charset=utf-8,"
         + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        
+
     const encodedUri = encodeURI(csvContent);
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute("href", encodedUri);
@@ -1339,12 +1379,12 @@ function triggerImport() {
 function handleFileImport(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
-    reader.onload = async function(evt) {
+    reader.onload = async function (evt) {
         const contents = evt.target.result;
         let importedRecords = [];
-        
+
         try {
             if (file.name.endsWith('.json')) {
                 importedRecords = JSON.parse(contents);
@@ -1353,11 +1393,11 @@ function handleFileImport(e) {
             } else {
                 throw new Error('Formato de archivo no soportado. Use .json o .csv');
             }
-            
+
             if (!Array.isArray(importedRecords) || importedRecords.length === 0) {
                 throw new Error('El archivo no contiene registros válidos.');
             }
-            
+
             // Validate and convert imported fields
             const validRecords = importedRecords.filter(r => {
                 return r.date && r.municipality && isSignificantRain(r.rain) && !isNaN(parseFloat(r.lat)) && !isNaN(parseFloat(r.lng));
@@ -1382,23 +1422,23 @@ function handleFileImport(e) {
                     lng: parseFloat(r.lng)
                 };
             });
-            
+
             if (validRecords.length === 0) {
                 throw new Error('Ninguno de los registros del archivo es válido.');
             }
-            
+
             // Ask user for action (merge vs replace)
             const action = await showImportConfirmModal(validRecords.length);
-            
+
             if (action === 'cancel') {
                 document.getElementById('fileImport').value = '';
                 return;
             }
-            
+
             if (action === 'merge') {
                 let added = 0;
                 validRecords.forEach(importRec => {
-                    const duplicate = records.some(r => r.id === importRec.id || 
+                    const duplicate = records.some(r => r.id === importRec.id ||
                         (r.date === importRec.date && r.municipality === importRec.municipality && Math.abs(r.rain - importRec.rain) < 0.01));
                     if (!duplicate) {
                         records.push(importRec);
@@ -1410,17 +1450,17 @@ function handleFileImport(e) {
                 records = validRecords;
                 showFloatingNotification(`Reemplazo exitoso: ${validRecords.length} registros cargados.`, 'success');
             }
-            
+
             saveRecordsToStorage();
             setupDateInputs();
             applyFilters();
             updateReportYearsList();
-            
+
         } catch (err) {
             showFloatingNotification(`Error al importar: ${err.message}`, 'warning');
             console.error(err);
         }
-        
+
         // Reset file input
         document.getElementById('fileImport').value = '';
     };
@@ -1431,9 +1471,9 @@ function handleFileImport(e) {
 function parseCsvContent(csvText) {
     const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
     if (lines.length < 2) return [];
-    
+
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
-    
+
     const colIdx = {
         id: headers.findIndex(h => h === 'id'),
         date: headers.findIndex(h => h === 'date' || h === 'fecha'),
@@ -1443,12 +1483,12 @@ function parseCsvContent(csvText) {
         lat: headers.findIndex(h => h === 'lat' || h === 'latitud'),
         lng: headers.findIndex(h => h === 'lng' || h === 'longitud' || h === 'long')
     };
-    
+
     const results = [];
     for (let i = 1; i < lines.length; i++) {
         const row = parseCsvRow(lines[i]);
         if (row.length < 5) continue;
-        
+
         const idVal = colIdx.id !== -1 ? row[colIdx.id] : undefined;
         const dateVal = colIdx.date !== -1 ? row[colIdx.date] : row[1];
         const deptVal = colIdx.department !== -1 ? row[colIdx.department] : undefined;
@@ -1456,7 +1496,7 @@ function parseCsvContent(csvText) {
         const rainVal = colIdx.rain !== -1 ? row[colIdx.rain] : row[3];
         const latVal = colIdx.lat !== -1 ? row[colIdx.lat] : row[4];
         const lngVal = colIdx.lng !== -1 ? row[colIdx.lng] : row[5];
-        
+
         if (dateVal && munVal && isSignificantRain(rainVal)) {
             results.push({
                 id: idVal,
@@ -1531,7 +1571,7 @@ function updateFormMunicipalities(selectedDept, selectedMunVal = '') {
     const formMunSelect = document.getElementById('formMunicipio');
     formMunSelect.innerHTML = '<option value="" disabled selected>Seleccione un municipio</option>';
     formMunSelect.disabled = false;
-    
+
     let muns = [];
     if (selectedDept && DEPARTMENTS_DATA[selectedDept]) {
         muns = Object.keys(DEPARTMENTS_DATA[selectedDept].municipalities);
@@ -1545,7 +1585,7 @@ function updateFormMunicipalities(selectedDept, selectedMunVal = '') {
             }
         }
     }
-    
+
     muns.sort().forEach(mun => {
         const opt = document.createElement('option');
         opt.value = mun;
@@ -1561,7 +1601,7 @@ function updateFilterMunicipalities(selectedDept, selectedMunVal = 'TODOS') {
     const filterMunSelect = document.getElementById('filterMunicipio');
     filterMunSelect.innerHTML = '<option value="TODOS">Todos los Municipios</option>';
     filterMunSelect.disabled = false;
-    
+
     let muns = [];
     if (selectedDept && selectedDept !== 'TODOS' && DEPARTMENTS_DATA[selectedDept]) {
         muns = Object.keys(DEPARTMENTS_DATA[selectedDept].municipalities);
@@ -1575,7 +1615,7 @@ function updateFilterMunicipalities(selectedDept, selectedMunVal = 'TODOS') {
             }
         }
     }
-    
+
     muns.sort().forEach(mun => {
         const opt = document.createElement('option');
         opt.value = mun;
@@ -1592,168 +1632,103 @@ const GOOGLE_SHEETS_URL_KEY = 'corrientes_rain_google_sheets_url';
 
 function cleanGoogleSheetsUrl(url) {
     url = url.trim();
-    
+
     // 1. Check if it's already a published CSV or export CSV link
     if (url.includes('/pub?output=csv') || url.includes('/export?format=csv')) {
         return url;
     }
-    
+
     // 2. Handle published HTML link: https://docs.google.com/spreadsheets/d/e/PUB_ID/pubhtml...
     const pubHtmlRegex = /https:\/\/docs\.google\.com\/spreadsheets\/d\/e\/([a-zA-Z0-9-_]+)\/pubhtml/;
     const pubHtmlMatch = url.match(pubHtmlRegex);
     if (pubHtmlMatch) {
         return `https://docs.google.com/spreadsheets/d/e/${pubHtmlMatch[1]}/pub?output=csv`;
     }
-    
+
     // 3. Handle standard sharing/edit link: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit...
     const editRegex = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
     const editMatch = url.match(editRegex);
     if (editMatch) {
         return `https://docs.google.com/spreadsheets/d/${editMatch[1]}/export?format=csv`;
     }
-    
+
     return url;
-}
-
-async function syncGoogleSheetsSilently() {
-    const savedUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY) || 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
-    
-    try {
-        let importedRecords = [];
-        const isAppsScript = savedUrl.includes('script.google.com');
-        
-        if (isAppsScript) {
-            const res = await fetch(savedUrl);
-            if (!res.ok) return;
-            const json = await res.json();
-            if (json && json.ok && Array.isArray(json.records)) {
-                importedRecords = json.records;
-            } else {
-                return;
-            }
-        } else {
-            const res = await fetch(savedUrl);
-            if (!res.ok) return;
-            const text = await res.text();
-            if (text.includes('google-signin') || text.includes('<!DOCTYPE') || text.includes('<html')) {
-                console.warn("Google Sheets returned HTML/login page. The spreadsheet must be shared as 'Anyone with the link can view'.");
-                return;
-            }
-            importedRecords = parseCsvContent(text);
-        }
-        
-        if (!Array.isArray(importedRecords) || importedRecords.length === 0) return;
-        
-        const validRecords = importedRecords.filter(r => {
-            return r.date && r.municipality && isSignificantRain(r.rain) && !isNaN(parseFloat(r.lat)) && !isNaN(parseFloat(r.lng));
-        }).map(r => {
-            let dept = r.department;
-            if (!dept) {
-                for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
-                    if (deptData.municipalities[r.municipality.trim()]) {
-                        dept = deptName;
-                        break;
-                    }
-                }
-            }
-            return {
-                id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                date: r.date.trim(),
-                department: (dept || 'Capital').trim(),
-                municipality: r.municipality.trim(),
-                rain: parseFloat(r.rain),
-                lat: parseFloat(r.lat),
-                lng: parseFloat(r.lng)
-            };
-        });
-
-        if (validRecords.length > 0) {
-            let added = 0;
-            validRecords.forEach(importRec => {
-                const duplicate = records.some(r => r.id === importRec.id || 
-                    (r.date === importRec.date && r.municipality === importRec.municipality && Math.abs(r.rain - importRec.rain) < 0.01));
-                if (!duplicate) {
-                    records.push(importRec);
-                    added++;
-                }
-            });
-            if (added > 0) {
-                saveRecordsToStorage();
-            }
-            console.log(`Sincronización inicial con Google Sheets completada: ${added} nuevos registros añadidos.`);
-        }
-    } catch (e) {
-        console.warn("Error during silent Google Sheets sync:", e);
-    }
 }
 
 async function syncGoogleSheets() {
     let savedUrl = localStorage.getItem(GOOGLE_SHEETS_URL_KEY);
-    const defaultUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
-    let urlToFetch = savedUrl || defaultUrl;
-    
-    const option = await showCustomPrompt({
-        title: 'Sincronización de Google Sheets',
-        bodyHtml: `
-            <p>${savedUrl ? 'La sincronización está activa con tu planilla vinculada:' : 'Se sincronizará con la planilla de Google Sheets por defecto del proyecto:'}</p>
-            <p style="word-break: break-all; font-family: monospace; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; font-size: 0.8rem;">${urlToFetch}</p>
-            <p style="margin-top: 10px;">¿Qué deseas hacer?</p>
-        `,
-        placeholder: 'Pega un nuevo enlace de Google Sheets aquí si deseas cambiarlo...',
-        defaultValue: savedUrl || '',
-        confirmText: savedUrl ? 'Actualizar Enlace' : 'Vincular Nuevo Enlace',
-        cancelText: 'Sincronizar Ahora',
-        showDelete: !!savedUrl,
-        deleteText: 'Restablecer planilla por defecto'
-    });
-    
-    if (option.action === 'delete') {
-        localStorage.removeItem(GOOGLE_SHEETS_URL_KEY);
-        showFloatingNotification('Se ha restablecido la planilla de Google Sheets por defecto.', 'info');
-        urlToFetch = defaultUrl;
-    } else if (option.action === 'confirm' && option.value) {
-        const cleaned = cleanGoogleSheetsUrl(option.value);
+
+    if (!savedUrl) {
+        const result = await showCustomPrompt({
+            title: 'Sincronizar Google Sheets',
+            bodyHtml: `
+                <p>Ingresa el enlace de tu planilla de Google Sheets. Puedes copiar:</p>
+                <ol>
+                    <li>El enlace de compartir: <code>https://docs.google.com/spreadsheets/d/.../edit?usp=sharing</code> (asegúrate de que esté configurado como <strong>"Cualquier persona con el enlace puede ver"</strong>).</li>
+                    <li>O el enlace publicado: <strong>Archivo -> Compartir -> Publicar en la web</strong> (elige formato <strong>Valores separados por comas (.csv)</strong>).</li>
+                </ol>
+            `,
+            placeholder: 'Pega tu enlace de Google Sheets aquí...',
+            confirmText: 'Vincular y Sincronizar',
+            cancelText: 'Cancelar'
+        });
+
+        if (result.action !== 'confirm' || !result.value) return;
+
+        const cleaned = cleanGoogleSheetsUrl(result.value);
         if (!cleaned.startsWith('http')) {
             showFloatingNotification('URL no válida. Debe comenzar con http/https.', 'warning');
             return;
         }
         localStorage.setItem(GOOGLE_SHEETS_URL_KEY, cleaned);
-        urlToFetch = cleaned;
-        showFloatingNotification('Enlace de Google Sheets actualizado.', 'success');
-    } else if (option.action === 'cancel') {
-        // Just sync now
+        savedUrl = cleaned;
     } else {
-        return; // User closed modal
+        const option = await showCustomPrompt({
+            title: 'Sincronización de Google Sheets',
+            bodyHtml: `
+                <p>La sincronización está activa con la siguiente URL vinculada:</p>
+                <p style="word-break: break-all; font-family: monospace; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; font-size: 0.8rem;">${savedUrl}</p>
+                <p style="margin-top: 10px;">¿Qué deseas hacer?</p>
+            `,
+            placeholder: 'Pegue un nuevo enlace si desea cambiarlo...',
+            defaultValue: savedUrl,
+            confirmText: 'Actualizar Enlace',
+            cancelText: 'Sincronizar Ahora',
+            showDelete: true,
+            deleteText: 'Desvincular Planilla'
+        });
+
+        if (option.action === 'delete') {
+            localStorage.removeItem(GOOGLE_SHEETS_URL_KEY);
+            showFloatingNotification('Google Sheets desvinculado.', 'info');
+            return;
+        } else if (option.action === 'confirm' && option.value) {
+            const cleaned = cleanGoogleSheetsUrl(option.value);
+            if (!cleaned.startsWith('http')) {
+                showFloatingNotification('URL no válida. Debe comenzar con http/https.', 'warning');
+                return;
+            }
+            localStorage.setItem(GOOGLE_SHEETS_URL_KEY, cleaned);
+            savedUrl = cleaned;
+            showFloatingNotification('Enlace de Google Sheets actualizado.', 'success');
+        } else if (option.action === 'cancel') {
+            // "Cancelar" means just Sync Now with the existing URL
+        } else {
+            return; // Exit
+        }
     }
-    
+
     showLoading();
     try {
-        let importedRecords = [];
-        const isAppsScript = urlToFetch.includes('script.google.com');
-        
-        if (isAppsScript) {
-            const res = await fetch(urlToFetch);
-            if (!res.ok) throw new Error('No se pudo establecer conexión con la Web App de Google Apps Script.');
-            const json = await res.json();
-            if (json && json.ok && Array.isArray(json.records)) {
-                importedRecords = json.records;
-            } else {
-                throw new Error(json.error || 'Respuesta inválida de la Web App.');
-            }
-        } else {
-            const res = await fetch(urlToFetch);
-            if (!res.ok) throw new Error('No se pudo descargar el archivo. Verifica que la planilla esté compartida correctamente ("Cualquier persona con el enlace puede ver").');
-            const text = await res.text();
-            if (text.includes('google-signin') || text.includes('<!DOCTYPE') || text.includes('<html')) {
-                throw new Error('La planilla de Google Sheets es privada. Debes compartirla como "Cualquier persona con el enlace puede ver" o usar la Web App de Google Apps Script.');
-            }
-            importedRecords = parseCsvContent(text);
-        }
-        
+        const res = await fetch(savedUrl);
+        if (!res.ok) throw new Error('No se pudo descargar el archivo. Verifica que la planilla esté compartida correctamente ("Cualquier persona con el enlace puede ver").');
+        const csvText = await res.text();
+
+        const importedRecords = parseCsvContent(csvText);
         if (!Array.isArray(importedRecords) || importedRecords.length === 0) {
-            throw new Error('El origen de datos no contiene registros de lluvias válidos.');
+            throw new Error('El archivo no contiene registros de lluvias válidos.');
         }
-        
+
         const validRecords = importedRecords.filter(r => {
             return r.date && r.municipality && isSignificantRain(r.rain) && !isNaN(parseFloat(r.lat)) && !isNaN(parseFloat(r.lng));
         }).map(r => {
@@ -1776,22 +1751,22 @@ async function syncGoogleSheets() {
                 lng: parseFloat(r.lng)
             };
         });
-        
+
         if (validRecords.length === 0) {
             throw new Error('Ninguno de los registros importados de Google Sheets es válido.');
         }
-        
+
         const action = await showImportConfirmModal(validRecords.length);
-        
+
         if (action === 'cancel') {
             hideLoading();
             return;
         }
-        
+
         if (action === 'merge') {
             let added = 0;
             validRecords.forEach(importRec => {
-                const duplicate = records.some(r => r.id === importRec.id || 
+                const duplicate = records.some(r => r.id === importRec.id ||
                     (r.date === importRec.date && r.municipality === importRec.municipality && Math.abs(r.rain - importRec.rain) < 0.01));
                 if (!duplicate) {
                     records.push(importRec);
@@ -1803,12 +1778,12 @@ async function syncGoogleSheets() {
             records = validRecords;
             showFloatingNotification(`Sincronización completada: Datos locales reemplazados con los ${validRecords.length} registros de Google Sheets.`, 'success');
         }
-        
+
         saveRecordsToStorage();
         setupDateInputs();
         applyFilters();
         updateReportYearsList();
-        
+
     } catch (err) {
         showFloatingNotification(`Error al sincronizar: ${err.message}`, 'warning');
         console.error(err);
@@ -1881,13 +1856,13 @@ function backupRecordToGoogleSheets(record, action) {
         },
         body: JSON.stringify(payload)
     })
-    .then(() => {
-        showFloatingNotification('Backup enviado a Google Sheets.', 'success');
-    })
-    .catch(err => {
-        console.warn('Google Sheets backup unavailable:', err);
-        showFloatingNotification('No se pudo enviar el backup a Google Sheets.', 'warning');
-    });
+        .then(() => {
+            showFloatingNotification('Backup enviado a Google Sheets.', 'success');
+        })
+        .catch(err => {
+            console.warn('Google Sheets backup unavailable:', err);
+            showFloatingNotification('No se pudo enviar el backup a Google Sheets.', 'warning');
+        });
 }
 
 function showCustomPrompt({ title, bodyHtml, placeholder = '', defaultValue = '', confirmText = 'Aceptar', cancelText = 'Cancelar', showDelete = false, deleteText = 'Desvincular' }) {
@@ -1896,16 +1871,16 @@ function showCustomPrompt({ title, bodyHtml, placeholder = '', defaultValue = ''
         const modalTitle = document.getElementById('modalTitle');
         const modalBody = document.getElementById('modalBody');
         const modalFooter = document.getElementById('modalFooter');
-        
+
         modalTitle.textContent = title;
-        
+
         modalBody.innerHTML = `
             ${bodyHtml}
             <input type="text" id="modalInputValue" class="modal-input" placeholder="${placeholder}" value="${defaultValue}">
         `;
-        
+
         modalFooter.innerHTML = '';
-        
+
         if (showDelete) {
             const btnDelete = document.createElement('button');
             btnDelete.className = 'btn-secondary';
@@ -1921,7 +1896,7 @@ function showCustomPrompt({ title, bodyHtml, placeholder = '', defaultValue = ''
             });
             modalFooter.appendChild(btnDelete);
         }
-        
+
         const btnCancel = document.createElement('button');
         btnCancel.className = 'btn-secondary';
         btnCancel.style.padding = '10px 16px';
@@ -1931,7 +1906,7 @@ function showCustomPrompt({ title, bodyHtml, placeholder = '', defaultValue = ''
             resolve({ action: 'cancel' });
         });
         modalFooter.appendChild(btnCancel);
-        
+
         const btnConfirm = document.createElement('button');
         btnConfirm.className = 'btn-primary';
         btnConfirm.style.padding = '10px 16px';
@@ -1943,13 +1918,13 @@ function showCustomPrompt({ title, bodyHtml, placeholder = '', defaultValue = ''
             resolve({ action: 'confirm', value: val });
         });
         modalFooter.appendChild(btnConfirm);
-        
+
         const closeBtn = document.getElementById('modalCloseBtn');
         closeBtn.onclick = () => {
             modal.style.display = 'none';
             resolve({ action: 'cancel' });
         };
-        
+
         modal.style.display = 'flex';
         document.getElementById('modalInputValue').focus();
     });
@@ -1961,12 +1936,12 @@ function showCustomConfirm({ title, bodyHtml, confirmText = 'Aceptar', cancelTex
         const modalTitle = document.getElementById('modalTitle');
         const modalBody = document.getElementById('modalBody');
         const modalFooter = document.getElementById('modalFooter');
-        
+
         modalTitle.textContent = title;
         modalBody.innerHTML = bodyHtml;
-        
+
         modalFooter.innerHTML = '';
-        
+
         const btnCancel = document.createElement('button');
         btnCancel.className = 'btn-secondary';
         btnCancel.style.padding = '10px 16px';
@@ -1976,7 +1951,7 @@ function showCustomConfirm({ title, bodyHtml, confirmText = 'Aceptar', cancelTex
             resolve(false);
         });
         modalFooter.appendChild(btnCancel);
-        
+
         const btnConfirm = document.createElement('button');
         btnConfirm.className = 'btn-primary';
         btnConfirm.style.padding = '10px 16px';
@@ -1987,13 +1962,13 @@ function showCustomConfirm({ title, bodyHtml, confirmText = 'Aceptar', cancelTex
             resolve(true);
         });
         modalFooter.appendChild(btnConfirm);
-        
+
         const closeBtn = document.getElementById('modalCloseBtn');
         closeBtn.onclick = () => {
             modal.style.display = 'none';
             resolve(false);
         };
-        
+
         modal.style.display = 'flex';
     });
 }
@@ -2004,7 +1979,7 @@ function showImportConfirmModal(count) {
         const modalTitle = document.getElementById('modalTitle');
         const modalBody = document.getElementById('modalBody');
         const modalFooter = document.getElementById('modalFooter');
-        
+
         modalTitle.textContent = 'Importar Datos';
         modalBody.innerHTML = `
             <p style="font-size: 1rem; margin-bottom: 12px;">Se encontraron <strong style="color: var(--accent-green); font-size: 1.1rem;">${count}</strong> registros válidos.</p>
@@ -2014,9 +1989,9 @@ function showImportConfirmModal(count) {
                 <li><strong>Reemplazar Todo:</strong> Elimina todos tus registros locales actuales y los sustituye por los del archivo importado.</li>
             </ul>
         `;
-        
+
         modalFooter.innerHTML = '';
-        
+
         const btnCancel = document.createElement('button');
         btnCancel.className = 'btn-secondary';
         btnCancel.style.padding = '10px 16px';
@@ -2026,7 +2001,7 @@ function showImportConfirmModal(count) {
             resolve('cancel');
         });
         modalFooter.appendChild(btnCancel);
-        
+
         const btnReplace = document.createElement('button');
         btnReplace.className = 'btn-secondary';
         btnReplace.style.padding = '10px 16px';
@@ -2039,7 +2014,7 @@ function showImportConfirmModal(count) {
             resolve('replace');
         });
         modalFooter.appendChild(btnReplace);
-        
+
         const btnMerge = document.createElement('button');
         btnMerge.className = 'btn-primary';
         btnMerge.style.padding = '10px 16px';
@@ -2050,13 +2025,13 @@ function showImportConfirmModal(count) {
             resolve('merge');
         });
         modalFooter.appendChild(btnMerge);
-        
+
         const closeBtn = document.getElementById('modalCloseBtn');
         closeBtn.onclick = () => {
             modal.style.display = 'none';
             resolve('cancel');
         };
-        
+
         modal.style.display = 'flex';
     });
 }
@@ -2068,10 +2043,10 @@ function initReportSection() {
     const reportDeptsList = document.getElementById('reportDeptsList');
     if (!reportDeptsList) return;
     reportDeptsList.innerHTML = '';
-    
+
     // Get sorted list of all departments from DEPARTMENTS_DATA
     const depts = Object.keys(DEPARTMENTS_DATA).sort();
-    
+
     depts.forEach((dept, idx) => {
         const item = document.createElement('div');
         item.className = 'report-checkbox-item';
@@ -2081,7 +2056,7 @@ function initReportSection() {
         `;
         reportDeptsList.appendChild(item);
     });
-    
+
     // 2. Months
     const reportMonthsList = document.getElementById('reportMonthsList');
     reportMonthsList.innerHTML = '';
@@ -2098,10 +2073,10 @@ function initReportSection() {
         `;
         reportMonthsList.appendChild(item);
     });
-    
-// 3. Years
+
+    // 3. Years
     updateReportYearsList();
-    
+
     // 4. Wire select all buttons
     document.getElementById('btnSelectAllDepts').onclick = toggleAllDepts;
     document.getElementById('btnSelectAllMonths').onclick = toggleAllMonths;
@@ -2112,7 +2087,7 @@ function updateReportYearsList() {
     const reportYearsList = document.getElementById('reportYearsList');
     if (!reportYearsList) return;
     reportYearsList.innerHTML = '';
-    
+
     // Extract unique years from records
     const years = new Set();
     records.forEach(r => {
@@ -2123,12 +2098,12 @@ function updateReportYearsList() {
             }
         }
     });
-    
+
     // If no years found, add current year
     if (years.size === 0) {
         years.add(new Date().getFullYear().toString());
     }
-    
+
     const sortedYears = Array.from(years).sort((a, b) => b - a); // descending
     sortedYears.forEach((year, idx) => {
         const item = document.createElement('div');
@@ -2164,7 +2139,7 @@ async function downloadExcelReport() {
     const selectedMonths = Array.from(document.querySelectorAll('#reportMonthsList input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
     // Get selected years
     const selectedYears = Array.from(document.querySelectorAll('#reportYearsList input[type="checkbox"]:checked')).map(cb => cb.value);
-    
+
     if (selectedDepts.length === 0) {
         showFloatingNotification('Por favor, seleccione al menos un departamento.', 'warning');
         return;
@@ -2177,20 +2152,20 @@ async function downloadExcelReport() {
         showFloatingNotification('Por favor, seleccione al menos un año.', 'warning');
         return;
     }
-    
+
     showLoading();
-    
+
     try {
         const monthsNames = [
             "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
         ];
-        
+
         // Sort inputs
         selectedDepts.sort();
-        selectedYears.sort((a,b) => a - b);
-        selectedMonths.sort((a,b) => a - b);
-        
+        selectedYears.sort((a, b) => a - b);
+        selectedMonths.sort((a, b) => a - b);
+
         const periods = [];
         selectedYears.forEach(yearStr => {
             const year = parseInt(yearStr);
@@ -2198,7 +2173,7 @@ async function downloadExcelReport() {
                 periods.push({ year, month });
             });
         });
-        
+
         // Build beautiful HTML report layout
         let htmlContent = `
         <!DOCTYPE html>
@@ -2360,7 +2335,7 @@ async function downloadExcelReport() {
                     <tr>
                         <td>
         `;
-        
+
         // Loop departments and build horizontal month layouts
         selectedDepts.forEach(dept => {
             htmlContent += `
@@ -2368,7 +2343,7 @@ async function downloadExcelReport() {
                     <div class="dept-title">DEPARTAMENTO: ${dept}</div>
                     <div class="months-row">
             `;
-            
+
             // Calculate max days among selected periods to align total rows visually
             let maxDays = 0;
             periods.forEach(p => {
@@ -2377,11 +2352,11 @@ async function downloadExcelReport() {
                     maxDays = daysInMonth;
                 }
             });
-            
+
             periods.forEach(p => {
                 const monthName = monthsNames[p.month - 1];
                 const daysInMonth = new Date(p.year, p.month, 0).getDate();
-                
+
                 htmlContent += `
                     <div class="month-table-container">
                         <div class="month-header">${monthName} ${p.year}</div>
@@ -2394,22 +2369,22 @@ async function downloadExcelReport() {
                             </thead>
                             <tbody>
                 `;
-                
+
                 let monthTotal = 0;
-                
+
                 // Write days 1 to maxDays
                 for (let day = 1; day <= maxDays; day++) {
                     if (day <= daysInMonth) {
                         const dayStr = day.toString().padStart(2, '0');
                         const monthStr = p.month.toString().padStart(2, '0');
                         const dateString = `${p.year}-${monthStr}-${dayStr}`;
-                        
+
                         const dailyRecords = records.filter(r => r.department === dept && r.date === dateString);
                         let dailyRain = 0;
                         if (dailyRecords.length > 0) {
                             dailyRain = dailyRecords.reduce((sum, r) => sum + r.rain, 0);
                         }
-                        
+
                         htmlContent += `
                             <tr>
                                 <td class="day">${day}</td>
@@ -2427,7 +2402,7 @@ async function downloadExcelReport() {
                         `;
                     }
                 }
-                
+
                 // Total Row
                 htmlContent += `
                                 <tr class="total-row">
@@ -2439,13 +2414,13 @@ async function downloadExcelReport() {
                     </div>
                 `;
             });
-            
+
             htmlContent += `
                     </div>
                 </div>
             `;
         });
-        
+
         htmlContent += `
                         </td>
                     </tr>
@@ -2454,19 +2429,19 @@ async function downloadExcelReport() {
         </body>
         </html>
         `;
-        
+
         // Open print window
         const printWindow = window.open('', '_blank');
         printWindow.document.write(htmlContent);
         printWindow.document.close();
-        
+
         // Wait for resources to load before printing
-        printWindow.onload = function() {
+        printWindow.onload = function () {
             printWindow.focus();
             printWindow.print();
             showFloatingNotification('Informe de impresión generado.', 'success');
         };
-        
+
     } catch (err) {
         console.error("Error generating printable report:", err);
         showFloatingNotification('Error al generar el reporte imprimible.', 'warning');
@@ -2484,14 +2459,14 @@ async function checkServerCsvUpdates() {
             const currentHeader = response.headers.get('Last-Modified') || response.headers.get('Content-Length');
             if (lastKnownCsvHeader && lastKnownCsvHeader !== currentHeader) {
                 lastKnownCsvHeader = currentHeader; // Update immediately
-                
+
                 const confirmUpdate = await showCustomConfirm({
                     title: 'Nuevos Datos en el Servidor',
                     bodyHtml: '<p>Se han cargado nuevos datos de lluvia en el servidor (archivo CSV modificado).</p><p>¿Deseas actualizar el dashboard para mostrar los nuevos registros?</p>',
                     confirmText: 'Actualizar Dashboard',
                     cancelText: 'Ignorar por ahora'
                 });
-                
+
                 if (confirmUpdate) {
                     showLoading();
                     // Clear local storage and reload from CSV & merge

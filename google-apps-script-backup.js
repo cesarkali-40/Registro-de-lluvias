@@ -15,32 +15,10 @@ const HEADERS = [
 ];
 
 function doGet() {
-  try {
-    const sheet = getBackupSheet();
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
-      return jsonResponse({ ok: true, records: [] });
-    }
-    
-    const values = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
-    const records = values.map(row => {
-      const record = {};
-      HEADERS.forEach((header, index) => {
-        record[header] = row[index];
-      });
-      return record;
-    }).filter(r => r.status !== 'deleted');
-    
-    return jsonResponse({
-      ok: true,
-      records: records
-    });
-  } catch (error) {
-    return jsonResponse({
-      ok: false,
-      error: error.message
-    });
-  }
+  return jsonResponse({
+    ok: true,
+    message: 'Registro de lluvias backup activo'
+  });
 }
 
 function doPost(e) {
