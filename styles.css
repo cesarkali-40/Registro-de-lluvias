@@ -1070,3 +1070,85 @@ select.form-input {
     cursor: not-allowed;
 }
 
+/* ===== REPORT BOXES ===== */
+.checkbox-scroll-container {
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-muted) var(--bg-secondary);
+}
+
+.checkbox-scroll-container::-webkit-scrollbar {
+    width: 4px;
+}
+
+.checkbox-scroll-container::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+.checkbox-scroll-container::-webkit-scrollbar-thumb {
+    background: var(--text-muted);
+    border-radius: 4px;
+}
+
+.report-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: var(--transition);
+    user-select: none;
+}
+
+.report-checkbox-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.report-checkbox-item input[type="checkbox"] {
+    appearance: none;
+    background-color: var(--bg-secondary);
+    margin: 0;
+    font: inherit;
+    color: var(--accent-blue);
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    display: grid;
+    place-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.report-checkbox-item input[type="checkbox"]::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    transform: scale(0);
+    transition: 120ms transform ease-in-out;
+    background-color: var(--accent-blue);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.report-checkbox-item input[type="checkbox"]:checked {
+    border-color: var(--accent-blue);
+    background-color: rgba(96, 165, 250, 0.1);
+}
+
+.report-checkbox-item input[type="checkbox"]:checked::before {
+    transform: scale(1);
+}
+
+.report-checkbox-label {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-grow: 1;
+}
+
+.report-checkbox-item:hover .report-checkbox-label {
+    color: var(--text-primary);
+}
+
+
