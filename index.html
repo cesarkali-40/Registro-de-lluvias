@@ -25,6 +25,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+    <!-- ExcelJS Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+
     <!-- Local Stylesheet -->
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -61,8 +64,8 @@
                     </svg>
                 </div>
                 <div>
-                    <h1 class="header-title">Registro de Lluvias</h1>
-                    <p class="header-subtitle">Provincia de Corrientes · Control Pluviométrico</p>
+                    <h1 class="header-title">Ministerio de Producción</h1>
+                    <p class="header-subtitle">Dirección de Economía Agraria · Registro de Lluvias</p>
                 </div>
             </div>
             <div class="header-right">
@@ -309,6 +312,52 @@
                 </div>
             </div>
         </div>
+
+        <!-- Row 4: Monthly Report Generation -->
+        <div class="charts-row">
+            <div class="chart-card chart-card-full">
+                <div class="chart-header">
+                    <h2 class="chart-title">Exportación de Reporte de Lluvias</h2>
+                    <p class="chart-desc">Seleccione meses y departamentos para descargar un reporte diario detallado con totales mensuales en formato Excel (.xlsx)</p>
+                </div>
+                <div class="chart-body" style="padding: 24px;">
+                    <div class="report-filters-grid" style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
+                        <!-- Departments checkboxes -->
+                        <div class="report-filter-col" style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 8px;">
+                            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Departamentos</span>
+                                <button type="button" id="btnSelectAllDepts" class="btn-secondary" style="padding: 4px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 4px;">Seleccionar Todos</button>
+                            </label>
+                            <div id="reportDeptsList" class="checkbox-scroll-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); background: var(--bg-primary);">
+                                <!-- Checkboxes populated dynamically -->
+                            </div>
+                        </div>
+                        <!-- Months checkboxes -->
+                        <div class="report-filter-col" style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px;">
+                            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Meses</span>
+                                <button type="button" id="btnSelectAllMonths" class="btn-secondary" style="padding: 4px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 4px;">Seleccionar Todos</button>
+                            </label>
+                            <div id="reportMonthsList" class="checkbox-scroll-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); background: var(--bg-primary);">
+                                <!-- Checkboxes populated dynamically (12 months) -->
+                            </div>
+                        </div>
+                        <!-- Years checkboxes -->
+                        <div class="report-filter-col" style="flex: 0.5; min-width: 150px; display: flex; flex-direction: column; gap: 8px;">
+                            <label class="form-label">Años</label>
+                            <div id="reportYearsList" class="checkbox-scroll-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); background: var(--bg-primary);">
+                                <!-- Checkboxes populated dynamically based on data years -->
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end;">
+                        <button id="btnDownloadReportExcel" class="btn-primary" style="margin-top: 0; padding: 12px 24px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                            <span>📄</span> Generar Informe Imprimible (Oficio)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- Custom Dialog Modal -->
@@ -333,7 +382,7 @@
     </footer>
 
     <!-- App Logic -->
-    <script src="app.js"></script>
+    <script src="app.js?v=5"></script>
 </body>
 
 </html>
