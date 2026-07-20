@@ -309,8 +309,8 @@ async function loadRecords() {
         saveRecordsToStorage();
     }
 
-    // Now merge Google Sheets data silently
-    const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/export?format=csv';
+    // Now merge Google Sheets "Registros" data silently
+    const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/18KQKLhvhRgdBR3n-d3ZqcBGVV1HC_J1_XgoXuqLfPLI/gviz/tq?tqx=out:csv&sheet=Registros';
     try {
         const response = await fetch(googleSheetUrl);
         if (response.ok) {
@@ -318,48 +318,70 @@ async function loadRecords() {
             if (!text.includes('google-signin') && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
                 const parsed = parseCsvContent(text);
                 if (parsed && parsed.length > 0) {
-                    let addedCount = 0;
-                    const existingKeys = new Set(records.map(r => `${r.date}|${r.municipality}|${parseFloat(r.rain).toFixed(1)}`));
+                    let changed = false;
                     
                     parsed.forEach(r => {
-                        let dept = r.department;
-                        if (!dept && r.municipality) {
-                            for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
-                                if (deptData.municipalities[r.municipality.trim()]) {
-                                    dept = deptName;
-                                    break;
+                        const actionVal = r.action ? r.action.toLowerCase() : '';
+                        const statusVal = r.status ? r.status.toLowerCase() : '';
+                        const recordId = r.id ? r.id.toString().trim() : '';
+                        
+                        if (!recordId) return;
+
+                        if (statusVal === 'deleted' || actionVal === 'delete') {
+                            const beforeLength = records.length;
+                            records = records.filter(localRec => localRec.id?.toString().trim() !== recordId);
+                            if (records.length !== beforeLength) {
+                                changed = true;
+                            }
+                        } else {
+                            const parsedRain = r.rain ? parseFloat(r.rain) : 0;
+                            const parsedLat = r.lat ? parseFloat(r.lat) : 0;
+                            const parsedLng = r.lng ? parseFloat(r.lng) : 0;
+                            
+                            let dept = r.department;
+                            if (!dept && r.municipality) {
+                                for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
+                                    if (deptData.municipalities[r.municipality.trim()]) {
+                                        dept = deptName;
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        
-                        const key = `${(r.date || '').trim()}|${(r.municipality || '').trim()}|${parseFloat(r.rain || 0).toFixed(1)}`;
-                        if (!existingKeys.has(key)) {
-                            records.push({
-                                id: r.id ? r.id.toString() : Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                            
+                            const updatedRecord = {
+                                id: recordId,
                                 date: (r.date || '').trim(),
                                 department: (dept || 'Capital').trim(),
                                 municipality: (r.municipality || '').trim(),
-                                rain: parseFloat(r.rain) || 0,
-                                lat: parseFloat(r.lat) || 0,
-                                lng: parseFloat(r.lng) || 0
-                            });
-                            addedCount++;
+                                rain: parsedRain,
+                                lat: parsedLat,
+                                lng: parsedLng
+                            };
+                            
+                            const existingIndex = records.findIndex(localRec => localRec.id?.toString().trim() === recordId);
+                            if (existingIndex !== -1) {
+                                records[existingIndex] = updatedRecord;
+                                changed = true;
+                            } else {
+                                records.push(updatedRecord);
+                                changed = true;
+                            }
                         }
                     });
                     
-                    if (addedCount > 0) {
+                    if (changed) {
                         migrateRecords();
                         removeInsignificantRainRecords();
                         saveRecordsToStorage();
-                        console.log(`Merged ${addedCount} new records from Google Sheets.`);
+                        console.log(`Successfully merged updates from Google Sheets 'Registros' tab.`);
                     }
                 }
             } else {
-                console.warn("Google Sheet is private or returned HTML login page. Skipping merge.");
+                console.warn("Google Sheet 'Registros' is private or returned HTML login page. Skipping merge.");
             }
         }
     } catch (e) {
-        console.warn("Failed to fetch/merge from Google Sheets:", e);
+        console.warn("Failed to fetch/merge from Google Sheets 'Registros' tab:", e);
     }
 }
 
@@ -1491,7 +1513,9 @@ function parseCsvContent(csvText) {
         municipality: headers.findIndex(h => h === 'municipality' || h === 'municipio'),
         rain: headers.findIndex(h => h === 'rain' || h === 'lluvia'),
         lat: headers.findIndex(h => h === 'lat' || h === 'latitud'),
-        lng: headers.findIndex(h => h === 'lng' || h === 'longitud' || h === 'long')
+        lng: headers.findIndex(h => h === 'lng' || h === 'longitud' || h === 'long'),
+        action: headers.findIndex(h => h === 'action' || h === 'accion'),
+        status: headers.findIndex(h => h === 'status' || h === 'estado')
     };
 
     const results = [];
@@ -1506,6 +1530,8 @@ function parseCsvContent(csvText) {
         const rainVal = colIdx.rain !== -1 ? row[colIdx.rain] : row[3];
         const latVal = colIdx.lat !== -1 ? row[colIdx.lat] : row[4];
         const lngVal = colIdx.lng !== -1 ? row[colIdx.lng] : row[5];
+        const actionVal = colIdx.action !== -1 ? row[colIdx.action] : undefined;
+        const statusVal = colIdx.status !== -1 ? row[colIdx.status] : undefined;
 
         const parsedRain = rainVal ? parseFloat(rainVal.toString().replace(',', '.')) : 0;
         const parsedLat = latVal ? parseFloat(latVal.toString().replace(',', '.')) : 0;
@@ -1519,7 +1545,9 @@ function parseCsvContent(csvText) {
                 municipality: munVal.trim(),
                 rain: parsedRain,
                 lat: parsedLat,
-                lng: parsedLng
+                lng: parsedLng,
+                action: actionVal,
+                status: statusVal
             });
         }
     }
