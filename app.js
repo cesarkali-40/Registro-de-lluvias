@@ -2339,7 +2339,7 @@ async function downloadExcelReport() {
                     font-weight: 500;
                 }
                 .data-table td.rain {
-                    text-align: right;
+                    text-align: center;
                     font-variant-numeric: tabular-nums;
                 }
                 .total-row td {
