@@ -2235,26 +2235,27 @@ async function downloadExcelReport() {
                     margin: 0;
                     padding: 0;
                     background-color: #fff;
-                    font-size: 8.5px;
-                    line-height: 1.15;
+                    font-size: 11px;
+                    line-height: 1.2;
                 }
                 
                 /* Repeating header using standard print rules */
                 .page-header-space {
-                    height: 72px;
+                    height: 2.8cm;
                 }
                 .page-header {
                     position: fixed;
                     top: 0;
                     left: 0;
                     width: 100%;
-                    height: 62px;
-                    border-bottom: 2px solid #1e293b;
+                    height: 2.5cm;
+                    border-bottom: 2px solid #0f172a;
                     background-color: white;
                     display: flex;
                     flex-direction: column;
                     justify-content: flex-start;
                     gap: 3px;
+                    padding-bottom: 4px;
                 }
                 .logo-container {
                     width: 100%;
@@ -2262,15 +2263,31 @@ async function downloadExcelReport() {
                 }
                 .logo-container img {
                     width: auto;
-                    height: 42px;
+                    max-width: 100%;
+                    height: 1.5cm;
+                    max-height: 1.5cm;
                     object-fit: contain;
+                    object-position: left center;
                     display: block;
+                    image-rendering: -webkit-optimize-contrast;
+                }
+                .header-text-container {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 1px;
+                }
+                .report-subtitle {
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: #334155;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
                 }
                 .report-title {
-                    font-size: 11px;
-                    font-weight: bold;
+                    font-size: 13px;
+                    font-weight: 800;
                     color: #0f172a;
-                    margin-top: 1px;
+                    letter-spacing: 0.5px;
                 }
                 
                 .main-table {
@@ -2288,7 +2305,7 @@ async function downloadExcelReport() {
                     break-after: avoid;
                 }
                 .dept-title {
-                    font-size: 11px;
+                    font-size: 13px;
                     font-weight: bold;
                     color: #059669; /* green */
                     margin-bottom: 6px;
@@ -2311,7 +2328,7 @@ async function downloadExcelReport() {
                     break-inside: avoid;
                 }
                 .month-header {
-                    font-size: 9.5px;
+                    font-size: 11.5px;
                     font-weight: bold;
                     color: #0f172a;
                     margin-bottom: 4px;
@@ -2322,11 +2339,11 @@ async function downloadExcelReport() {
                 .data-table {
                     width: 100%;
                     border-collapse: collapse;
-                    font-size: 8.5px;
+                    font-size: 11px;
                 }
                 .data-table th, .data-table td {
                     border: 1px solid #cbd5e1;
-                    padding: 1.5px 3.5px;
+                    padding: 2.5px 4px;
                 }
                 .data-table th {
                     background-color: #334155;
@@ -2362,7 +2379,10 @@ async function downloadExcelReport() {
                 <div class="logo-container">
                     <img src="logo_reporte.png" alt="Gobierno de Corrientes">
                 </div>
-                <div class="report-title">REPORTE PLUVIOMÉTRICO DIARIO · MINISTERIO DE PRODUCCIÓN</div>
+                <div class="header-text-container">
+                    <div class="report-subtitle">SUBSECRETARÍA DE PRODUCCIÓN &nbsp;•&nbsp; DIRECCIÓN DE ECONOMÍA AGRARIA</div>
+                    <div class="report-title">REPORTE PLUVIOMÉTRICO DIARIO · MINISTERIO DE PRODUCCIÓN</div>
+                </div>
             </div>
 
             <!-- Main Print Table wrapper to repeat header cleanly -->
@@ -2473,17 +2493,47 @@ async function downloadExcelReport() {
         </html>
         `;
 
-        // Open print window
+        // Open print window with robust popup-blocker fallback
         const printWindow = window.open('', '_blank');
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-
-        // Wait for resources to load before printing
-        printWindow.onload = function () {
-            printWindow.focus();
-            printWindow.print();
-            showFloatingNotification('Informe de impresión generado.', 'success');
-        };
+        if (printWindow) {
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            printWindow.onload = function () {
+                try {
+                    printWindow.focus();
+                    printWindow.print();
+                } catch(e) {}
+                showFloatingNotification('Informe de impresión generado.', 'success');
+            };
+            setTimeout(() => {
+                try {
+                    printWindow.focus();
+                    printWindow.print();
+                } catch (e) {}
+            }, 600);
+        } else {
+            // Fallback via iframe if popups are blocked by browser settings
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+            iframe.contentWindow.document.write(htmlContent);
+            iframe.contentWindow.document.close();
+            setTimeout(() => {
+                try {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                } catch(e) {}
+                setTimeout(() => {
+                    if (iframe.parentNode) document.body.removeChild(iframe);
+                }, 2000);
+                showFloatingNotification('Informe de impresión generado.', 'success');
+            }, 600);
+        }
 
     } catch (err) {
         console.error("Error generating printable report:", err);
