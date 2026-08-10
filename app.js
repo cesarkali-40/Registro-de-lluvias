@@ -4,6 +4,7 @@
 
 // ─── Constants & Configuration ──────────────────────────────────────────
 const LOCAL_STORAGE_KEY = 'corrientes_rain_records';
+const CUSTOM_LOCALITIES_KEY = 'corrientes_custom_localities';
 const MIN_RAIN_RECORD_MM = 0.99;
 
 // Department and Municipality Coordinates in Corrientes
@@ -23,9 +24,9 @@ const DEPARTMENTS_DATA = {
         }
     },
     "Berón de Astrada": {
-        center: { lat: -27.3056, lng: -57.5344 },
+        center: { lat: -27.548756, lng: -57.539680 },
         municipalities: {
-            "Berón de Astrada": { lat: -27.3056, lng: -57.5344 }
+            "Berón de Astrada": { lat: -27.548756, lng: -57.539680 }
         }
     },
     "Concepción": {
@@ -243,6 +244,7 @@ document.addEventListener('DOMContentLoaded', initApp);
 async function initApp() {
     showLoading();
     try {
+        loadCustomLocalities();
         await loadRecords();
         populateDropdowns();
         setupDateInputs();
@@ -531,12 +533,20 @@ function initDashboardMap() {
 }
 
 // Update the marker on the form map
-function setFormMarker(lat, lng) {
-    const latFixed = lat.toFixed(6);
-    const lngFixed = lng.toFixed(6);
+function setFormMarker(lat, lng, skipInputUpdate = false) {
+    const latNum = parseFloat(lat);
+    const lngNum = parseFloat(lng);
+    if (isNaN(latNum) || isNaN(lngNum)) return;
 
-    document.getElementById('formLat').value = latFixed;
-    document.getElementById('formLng').value = lngFixed;
+    const latFixed = latNum.toFixed(6);
+    const lngFixed = lngNum.toFixed(6);
+
+    if (!skipInputUpdate) {
+        const latInput = document.getElementById('formLat');
+        const lngInput = document.getElementById('formLng');
+        if (latInput) latInput.value = latFixed;
+        if (lngInput) lngInput.value = lngFixed;
+    }
     document.getElementById('coordsDisplay').textContent = `Coordenadas: Lat ${latFixed}, Lng ${lngFixed}`;
 
     // Custom glowing cyan pulse icon
@@ -548,9 +558,9 @@ function setFormMarker(lat, lng) {
     });
 
     if (formMarker) {
-        formMarker.setLatLng([lat, lng]);
+        formMarker.setLatLng([latNum, lngNum]);
     } else {
-        formMarker = L.marker([lat, lng], {
+        formMarker = L.marker([latNum, lngNum], {
             draggable: true,
             icon: customPulseIcon
         }).addTo(formMapInstance);
@@ -1037,6 +1047,23 @@ function wireEvents() {
         currentTablePage = 1;
         populateTable();
     });
+
+    // Add new paraje / localidad button
+    document.getElementById('btnAddCustomLocality')?.addEventListener('click', handleAddCustomLocality);
+
+    // Manual GPS input listeners
+    const handleManualCoordsInput = () => {
+        const lat = parseFloat(document.getElementById('formLat').value);
+        const lng = parseFloat(document.getElementById('formLng').value);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            setFormMarker(lat, lng, true);
+            if (formMapInstance) {
+                formMapInstance.setView([lat, lng], Math.max(formMapInstance.getZoom(), 10));
+            }
+        }
+    };
+    document.getElementById('formLat')?.addEventListener('input', handleManualCoordsInput);
+    document.getElementById('formLng')?.addEventListener('input', handleManualCoordsInput);
 
     // Data Import / Export Listeners
     document.getElementById('btnExportJson').addEventListener('click', exportToJson);
@@ -1573,10 +1600,116 @@ function parseCsvRow(line) {
     return result;
 }
 
+// ─── Custom Paraje / Localidad Helpers ─────────────────────────────────
+function loadCustomLocalities() {
+    const stored = localStorage.getItem(CUSTOM_LOCALITIES_KEY);
+    if (!stored) return;
+    try {
+        const customLocs = JSON.parse(stored);
+        if (Array.isArray(customLocs)) {
+            customLocs.forEach(loc => {
+                if (loc.department && loc.name && DEPARTMENTS_DATA[loc.department]) {
+                    const lat = parseFloat(loc.lat) || DEPARTMENTS_DATA[loc.department].center.lat;
+                    const lng = parseFloat(loc.lng) || DEPARTMENTS_DATA[loc.department].center.lng;
+                    DEPARTMENTS_DATA[loc.department].municipalities[loc.name] = { lat, lng };
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("Could not load custom localities from storage:", e);
+    }
+}
+
+async function handleAddCustomLocality() {
+    let currentDept = document.getElementById('formDepartamento').value;
+
+    const deptsOptionsHtml = Object.keys(DEPARTMENTS_DATA).sort().map(d =>
+        `<option value="${d}" ${d === currentDept ? 'selected' : ''}>${d}</option>`
+    ).join('');
+
+    const modalResult = await showCustomPrompt({
+        title: 'Agregar Nuevo Paraje o Localidad',
+        bodyHtml: `
+            <p style="margin-bottom: 10px;">Seleccione el departamento y escriba el nombre de la nueva localidad o paraje:</p>
+            <div style="margin-bottom: 12px;">
+                <label class="form-label" for="customDeptSelect">Departamento de Corrientes</label>
+                <select id="customDeptSelect" class="form-input" style="width: 100%;">
+                    ${deptsOptionsHtml}
+                </select>
+            </div>
+            <label class="form-label" for="modalInputValue">Nombre del Paraje / Localidad</label>
+        `,
+        placeholder: 'Ej: Paraje San Antonio, Colonia El Matrero...',
+        confirmText: 'Agregar Paraje',
+        cancelText: 'Cancelar'
+    });
+
+    if (modalResult.action !== 'confirm' || !modalResult.value) return;
+
+    const locName = modalResult.value.trim();
+    if (!locName) {
+        showFloatingNotification('Debe ingresar un nombre válido para la localidad/paraje.', 'warning');
+        return;
+    }
+
+    const selectedDept = document.getElementById('customDeptSelect')?.value || currentDept || 'Capital';
+
+    // Get current GPS form inputs or fall back to department center
+    let lat = parseFloat(document.getElementById('formLat').value);
+    let lng = parseFloat(document.getElementById('formLng').value);
+    if (isNaN(lat) || isNaN(lng)) {
+        lat = DEPARTMENTS_DATA[selectedDept]?.center.lat || PROVINCE_CENTER.lat;
+        lng = DEPARTMENTS_DATA[selectedDept]?.center.lng || PROVINCE_CENTER.lng;
+    }
+
+    // Add to DEPARTMENTS_DATA structure in-memory
+    if (!DEPARTMENTS_DATA[selectedDept]) {
+        DEPARTMENTS_DATA[selectedDept] = {
+            center: { lat: PROVINCE_CENTER.lat, lng: PROVINCE_CENTER.lng },
+            municipalities: {}
+        };
+    }
+    DEPARTMENTS_DATA[selectedDept].municipalities[locName] = { lat, lng };
+
+    // Save to localStorage
+    try {
+        const stored = localStorage.getItem(CUSTOM_LOCALITIES_KEY);
+        const customLocs = stored ? JSON.parse(stored) : [];
+        const exists = customLocs.some(l => l.department === selectedDept && l.name === locName);
+        if (!exists) {
+            customLocs.push({ department: selectedDept, name: locName, lat, lng });
+            localStorage.setItem(CUSTOM_LOCALITIES_KEY, JSON.stringify(customLocs));
+        }
+    } catch (e) {
+        console.warn("Could not save custom locality:", e);
+    }
+
+    // Update form and filter dropdowns
+    document.getElementById('formDepartamento').value = selectedDept;
+    updateFormMunicipalities(selectedDept, locName);
+    updateFilterMunicipalities(document.getElementById('filterDepartamento').value);
+
+    // Set map view and marker
+    if (formMapInstance) {
+        formMapInstance.setView([lat, lng], 12);
+        setFormMarker(lat, lng);
+    }
+
+    showFloatingNotification(`Nuevo paraje "${locName}" agregado en ${selectedDept}.`, 'success');
+}
+
 // ─── Location Cascading Dropdowns & Migration Helpers ───────────────────
 function migrateRecords() {
     let migrated = false;
     records.forEach(r => {
+        // Enforce updated Berón de Astrada GPS location (-27.548756, -57.539680)
+        const isBeron = (r.department && r.department.includes('Astrada')) || (r.municipality && r.municipality.includes('Astrada'));
+        if (isBeron && (r.lat !== -27.548756 || r.lng !== -57.539680)) {
+            r.lat = -27.548756;
+            r.lng = -57.539680;
+            migrated = true;
+        }
+
         if (!r.department) {
             for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
                 if (deptData.municipalities[r.municipality]) {
@@ -2100,7 +2233,13 @@ function initReportSection() {
         reportDeptsList.appendChild(item);
     });
 
-    // 2. Months
+    // Re-populate municipalities when departments change
+    reportDeptsList.addEventListener('change', updateReportMunsList);
+
+    // 2. Municipalities / Localities
+    updateReportMunsList();
+
+    // 3. Months
     const reportMonthsList = document.getElementById('reportMonthsList');
     reportMonthsList.innerHTML = '';
     const monthsNames = [
@@ -2117,13 +2256,51 @@ function initReportSection() {
         reportMonthsList.appendChild(item);
     });
 
-    // 3. Years
+    // 4. Years (unchecked by default)
     updateReportYearsList();
 
-    // 4. Wire select all buttons
+    // 5. Wire select all buttons
     document.getElementById('btnSelectAllDepts').onclick = toggleAllDepts;
+    document.getElementById('btnSelectAllMuns').onclick = toggleAllMuns;
     document.getElementById('btnSelectAllMonths').onclick = toggleAllMonths;
+    document.getElementById('btnSelectAllYears').onclick = toggleAllYears;
     document.getElementById('btnDownloadReportExcel').onclick = downloadExcelReport;
+}
+
+function updateReportMunsList() {
+    const reportMunsList = document.getElementById('reportMunsList');
+    if (!reportMunsList) return;
+    reportMunsList.innerHTML = '';
+
+    // Get checked departments
+    const checkedDepts = Array.from(document.querySelectorAll('#reportDeptsList input[type="checkbox"]:checked')).map(cb => cb.value);
+
+    let muns = new Set();
+    if (checkedDepts.length > 0) {
+        checkedDepts.forEach(dept => {
+            if (DEPARTMENTS_DATA[dept] && DEPARTMENTS_DATA[dept].municipalities) {
+                Object.keys(DEPARTMENTS_DATA[dept].municipalities).forEach(m => muns.add(m));
+            }
+        });
+    } else {
+        // Collect all municipalities across all departments
+        Object.values(DEPARTMENTS_DATA).forEach(deptData => {
+            if (deptData.municipalities) {
+                Object.keys(deptData.municipalities).forEach(m => muns.add(m));
+            }
+        });
+    }
+
+    const sortedMuns = Array.from(muns).sort();
+    sortedMuns.forEach((mun, idx) => {
+        const item = document.createElement('div');
+        item.className = 'report-checkbox-item';
+        item.innerHTML = `
+            <input type="checkbox" id="repMun_${idx}" value="${mun}">
+            <label for="repMun_${idx}" class="report-checkbox-label">${mun}</label>
+        `;
+        reportMunsList.appendChild(item);
+    });
 }
 
 function updateReportYearsList() {
@@ -2152,7 +2329,7 @@ function updateReportYearsList() {
         const item = document.createElement('div');
         item.className = 'report-checkbox-item';
         item.innerHTML = `
-            <input type="checkbox" id="repYear_${idx}" value="${year}" checked>
+            <input type="checkbox" id="repYear_${idx}" value="${year}">
             <label for="repYear_${idx}" class="report-checkbox-label">${year}</label>
         `;
         reportYearsList.appendChild(item);
@@ -2165,6 +2342,15 @@ function toggleAllDepts() {
     allDeptsSelected = !allDeptsSelected;
     checkboxes.forEach(cb => cb.checked = allDeptsSelected);
     document.getElementById('btnSelectAllDepts').textContent = allDeptsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
+    updateReportMunsList();
+}
+
+let allMunsSelected = false;
+function toggleAllMuns() {
+    const checkboxes = document.querySelectorAll('#reportMunsList input[type="checkbox"]');
+    allMunsSelected = !allMunsSelected;
+    checkboxes.forEach(cb => cb.checked = allMunsSelected);
+    document.getElementById('btnSelectAllMuns').textContent = allMunsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
 }
 
 let allMonthsSelected = false;
@@ -2175,9 +2361,19 @@ function toggleAllMonths() {
     document.getElementById('btnSelectAllMonths').textContent = allMonthsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
 }
 
+let allYearsSelected = false;
+function toggleAllYears() {
+    const checkboxes = document.querySelectorAll('#reportYearsList input[type="checkbox"]');
+    allYearsSelected = !allYearsSelected;
+    checkboxes.forEach(cb => cb.checked = allYearsSelected);
+    document.getElementById('btnSelectAllYears').textContent = allYearsSelected ? 'Deseleccionar Todos' : 'Seleccionar Todos';
+}
+
 async function downloadExcelReport() {
     // Get selected departments
     const selectedDepts = Array.from(document.querySelectorAll('#reportDeptsList input[type="checkbox"]:checked')).map(cb => cb.value);
+    // Get selected municipalities / localities
+    const selectedMuns = Array.from(document.querySelectorAll('#reportMunsList input[type="checkbox"]:checked')).map(cb => cb.value);
     // Get selected months
     const selectedMonths = Array.from(document.querySelectorAll('#reportMonthsList input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
     // Get selected years
@@ -2401,9 +2597,15 @@ async function downloadExcelReport() {
 
         // Loop departments and build horizontal month layouts
         selectedDepts.forEach(dept => {
+            const deptMuns = selectedMuns.filter(m => DEPARTMENTS_DATA[dept]?.municipalities[m]);
+            let titleText = `DEPARTAMENTO: ${dept}`;
+            if (deptMuns.length > 0) {
+                titleText += ` &nbsp;•&nbsp; LOCALIDAD / PARAJE: ${deptMuns.join(', ')}`;
+            }
+
             htmlContent += `
                 <div class="dept-container">
-                    <div class="dept-title">DEPARTAMENTO: ${dept}</div>
+                    <div class="dept-title">${titleText}</div>
                     <div class="months-row">
             `;
 
@@ -2442,10 +2644,18 @@ async function downloadExcelReport() {
                         const monthStr = p.month.toString().padStart(2, '0');
                         const dateString = `${p.year}-${monthStr}-${dayStr}`;
 
-                        const dailyRecords = records.filter(r => r.department === dept && r.date === dateString);
+                        const dailyRecords = records.filter(r => {
+                            if (r.department !== dept || r.date !== dateString) return false;
+                            if (selectedMuns.length > 0) {
+                                return selectedMuns.includes(r.municipality);
+                            }
+                            return true;
+                        });
+
                         let dailyRain = 0;
                         if (dailyRecords.length > 0) {
-                            dailyRain = dailyRecords.reduce((sum, r) => sum + r.rain, 0);
+                            const sumRain = dailyRecords.reduce((sum, r) => sum + r.rain, 0);
+                            dailyRain = sumRain / dailyRecords.length; // Average rain for department/locality on this day
                         }
 
                         htmlContent += `
@@ -2498,19 +2708,18 @@ async function downloadExcelReport() {
         if (printWindow) {
             printWindow.document.write(htmlContent);
             printWindow.document.close();
-            printWindow.onload = function () {
+            let isPrinted = false;
+            const triggerPrint = () => {
+                if (isPrinted) return;
+                isPrinted = true;
                 try {
                     printWindow.focus();
                     printWindow.print();
                 } catch(e) {}
                 showFloatingNotification('Informe de impresión generado.', 'success');
             };
-            setTimeout(() => {
-                try {
-                    printWindow.focus();
-                    printWindow.print();
-                } catch (e) {}
-            }, 600);
+            printWindow.onload = triggerPrint;
+            setTimeout(triggerPrint, 600);
         } else {
             // Fallback via iframe if popups are blocked by browser settings
             const iframe = document.createElement('iframe');
@@ -2523,7 +2732,10 @@ async function downloadExcelReport() {
             document.body.appendChild(iframe);
             iframe.contentWindow.document.write(htmlContent);
             iframe.contentWindow.document.close();
-            setTimeout(() => {
+            let isPrinted = false;
+            const triggerPrint = () => {
+                if (isPrinted) return;
+                isPrinted = true;
                 try {
                     iframe.contentWindow.focus();
                     iframe.contentWindow.print();
@@ -2532,7 +2744,8 @@ async function downloadExcelReport() {
                     if (iframe.parentNode) document.body.removeChild(iframe);
                 }, 2000);
                 showFloatingNotification('Informe de impresión generado.', 'success');
-            }, 600);
+            };
+            setTimeout(triggerPrint, 600);
         }
 
     } catch (err) {
