@@ -173,9 +173,13 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label" for="formMunicipio">Municipio de Corrientes</label>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label class="form-label" for="formMunicipio" style="margin-bottom: 0;">Municipio / Localidad / Paraje</label>
+                                <button type="button" id="btnAddCustomLocality" class="btn-secondary"
+                                    style="padding: 2px 8px; font-size: 0.72rem; cursor: pointer; border-radius: 4px;">+ Nuevo Paraje / Localidad</button>
+                            </div>
                             <select id="formMunicipio" class="form-input" required disabled>
-                                <option value="" disabled selected>Seleccione un municipio</option>
+                                <option value="" disabled selected>Seleccione un municipio o paraje</option>
                             </select>
                         </div>
 
@@ -205,12 +209,14 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">Coordenadas del Pluviómetro</label>
+                            <label class="form-label">Coordenadas GPS (Latitud, Longitud)</label>
+                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                <input type="number" step="any" id="formLat" class="form-input" placeholder="Latitud (ej: -27.4692)" style="flex: 1;" required>
+                                <input type="number" step="any" id="formLng" class="form-input" placeholder="Longitud (ej: -58.8306)" style="flex: 1;" required>
+                            </div>
                             <div id="formMap" class="map-container"
                                 style="height: 180px; min-height: 180px; margin-bottom: 4px;"></div>
-                            <span class="coordinate-helper">Haz clic en el mapa para marcar el punto de toma.</span>
-                            <input type="hidden" id="formLat">
-                            <input type="hidden" id="formLng">
+                            <span class="coordinate-helper">Haz clic en el mapa o ingresa los valores GPS manualmente arriba.</span>
                             <div id="coordsDisplay" class="coordinate-helper"
                                 style="font-weight: 600; color: var(--accent-blue);">Coordenadas: No seleccionadas</div>
                         </div>
@@ -326,7 +332,7 @@
                         style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 20px;">
                         <!-- Departments checkboxes -->
                         <div class="report-filter-col"
-                            style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 8px;">
+                            style="flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 8px;">
                             <label class="form-label"
                                 style="display: flex; justify-content: space-between; align-items: center;">
                                 <span>Departamentos</span>
@@ -339,9 +345,24 @@
                                 <!-- Checkboxes populated dynamically -->
                             </div>
                         </div>
+                        <!-- Municipalities / Localities checkboxes -->
+                        <div class="report-filter-col"
+                            style="flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 8px;">
+                            <label class="form-label"
+                                style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Localidades / Parajes</span>
+                                <button type="button" id="btnSelectAllMuns" class="btn-secondary"
+                                    style="padding: 4px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 4px;">Seleccionar
+                                    Todos</button>
+                            </label>
+                            <div id="reportMunsList" class="checkbox-scroll-container"
+                                style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); background: var(--bg-primary);">
+                                <!-- Checkboxes populated dynamically -->
+                            </div>
+                        </div>
                         <!-- Months checkboxes -->
                         <div class="report-filter-col"
-                            style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px;">
+                            style="flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 8px;">
                             <label class="form-label"
                                 style="display: flex; justify-content: space-between; align-items: center;">
                                 <span>Meses</span>
@@ -356,8 +377,14 @@
                         </div>
                         <!-- Years checkboxes -->
                         <div class="report-filter-col"
-                            style="flex: 0.5; min-width: 150px; display: flex; flex-direction: column; gap: 8px;">
-                            <label class="form-label">Años</label>
+                            style="flex: 0.8; min-width: 150px; display: flex; flex-direction: column; gap: 8px;">
+                            <label class="form-label"
+                                style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>Años</span>
+                                <button type="button" id="btnSelectAllYears" class="btn-secondary"
+                                    style="padding: 4px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 4px;">Seleccionar
+                                    Todos</button>
+                            </label>
                             <div id="reportYearsList" class="checkbox-scroll-container"
                                 style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); padding: 12px; border-radius: var(--radius-sm); background: var(--bg-primary);">
                                 <!-- Checkboxes populated dynamically based on data years -->
