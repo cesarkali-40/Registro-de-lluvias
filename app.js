@@ -285,6 +285,10 @@ async function loadRecords() {
             return await loadRecords();
         }
         
+        records.forEach(r => {
+            if (r.department) r.department = sanitizeName(r.department);
+            if (r.municipality) r.municipality = sanitizeName(r.municipality);
+        });
         migrateRecords();
         removeInsignificantRainRecords();
         await mergeCsvRecordsIntoStorage();
@@ -472,9 +476,15 @@ function setupDateInputs() {
 
     // Determine the date range of records
     if (records.length > 0) {
-        const dates = records.map(r => new Date(r.date));
-        const minDate = new Date(Math.min(...dates)).toISOString().split('T')[0];
-        const maxDate = new Date(Math.max(...dates)).toISOString().split('T')[0];
+        let minDate = records[0].date;
+        let maxDate = records[0].date;
+        for (let i = 1; i < records.length; i++) {
+            const d = records[i].date;
+            if (d) {
+                if (d < minDate) minDate = d;
+                if (d > maxDate) maxDate = d;
+            }
+        }
 
         document.getElementById('filterDesde').value = minDate;
         document.getElementById('filterHasta').value = maxDate;
@@ -654,6 +664,50 @@ function drawDashboardMap() {
     // Clear old layers
     dashboardMapLayers.forEach(layer => dashboardMapInstance.removeLayer(layer));
     dashboardMapLayers = [];
+
+    // Remove existing map notice if present
+    const existingNotice = document.getElementById('mapPlaceholderNotice');
+    if (existingNotice) {
+        existingNotice.remove();
+    }
+
+    const departamento = document.getElementById('filterDepartamento')?.value || 'TODOS';
+    const municipio = document.getElementById('filterMunicipio')?.value || 'TODOS';
+    const desdeInput = document.getElementById('filterDesde')?.value || '';
+    const hastaInput = document.getElementById('filterHasta')?.value || '';
+
+    // Check if dates differ from total record bounds
+    let isDateFiltered = false;
+    if (records.length > 0 && (desdeInput || hastaInput)) {
+        let minD = records[0].date;
+        let maxD = records[0].date;
+        for (let i = 1; i < records.length; i++) {
+            if (records[i].date < minD) minD = records[i].date;
+            if (records[i].date > maxD) maxD = records[i].date;
+        }
+        if (desdeInput && desdeInput !== minD) isDateFiltered = true;
+        if (hastaInput && hastaInput !== maxD) isDateFiltered = true;
+    }
+
+    const isFiltered = (departamento !== 'TODOS' || municipio !== 'TODOS' || isDateFiltered);
+
+    // If unfiltered (showing all records), defer rendering markers to keep page load instant
+    if (!isFiltered && filteredRecords.length > 1000) {
+        dashboardMapInstance.setView([PROVINCE_CENTER.lat, PROVINCE_CENTER.lng], 7);
+
+        const mapContainer = document.getElementById('dashboardMap');
+        if (mapContainer) {
+            const notice = document.createElement('div');
+            notice.id = 'mapPlaceholderNotice';
+            notice.className = 'map-notice-banner';
+            notice.innerHTML = `
+                <span style="font-size: 1.3rem;">📍</span>
+                <span>Selecciona un <strong>Departamento</strong>, <strong>Municipio</strong> o filtra por fechas para visualizar los registros en el mapa. <span style="color: var(--accent-cyan); display: inline-block; margin-left: 4px;">(${filteredRecords.length.toLocaleString()} mediciones cargadas)</span></span>
+            `;
+            mapContainer.appendChild(notice);
+        }
+        return;
+    }
 
     filteredRecords.forEach(rec => {
         // Determine circle color & radius based on rainfall intensity
@@ -1565,11 +1619,13 @@ function parseCsvContent(csvText) {
         const parsedLng = lngVal ? parseFloat(lngVal.toString().replace(',', '.')) : 0;
 
         if (dateVal && munVal && !isNaN(parsedRain) && parsedRain >= MIN_RAIN_RECORD_MM) {
+            const cleanDept = deptVal ? sanitizeName(deptVal.trim()) : undefined;
+            const cleanMun = sanitizeName(munVal.trim());
             results.push({
                 id: idVal,
                 date: dateVal.trim(),
-                department: deptVal ? deptVal.trim() : undefined,
-                municipality: munVal.trim(),
+                department: cleanDept,
+                municipality: cleanMun,
                 rain: parsedRain,
                 lat: parsedLat,
                 lng: parsedLng,
@@ -1699,9 +1755,52 @@ async function handleAddCustomLocality() {
 }
 
 // ─── Location Cascading Dropdowns & Migration Helpers ───────────────────
+function sanitizeName(str) {
+    if (!str || typeof str !== 'string') return '';
+    let text = str.trim();
+
+    if (/Ber.*n de Astrada/i.test(text)) return 'Berón de Astrada';
+    if (/Concepci.*n/i.test(text)) return 'Concepción';
+    if (/Curuz.*Cuati.*/i.test(text)) return 'Curuzú Cuatiá';
+    if (/Ituzaing.*/i.test(text)) return 'Ituzaingó';
+    if (/Santo Tom.*/i.test(text)) return 'Santo Tomé';
+    if (/Ca.*Cat.*/i.test(text)) return 'Caá Catí';
+    if (/Mburucuy.*/i.test(text)) return 'Mburucuyá';
+    if (/Mocoret.*/i.test(text)) return 'Mocoretá';
+    if (/San Mart.*n/i.test(text)) return 'San Martín';
+    if (/Chavarr.*a/i.test(text)) return 'Chavarría';
+    if (/Perugorr.*a/i.test(text)) return 'Perugorría';
+    if (/It.*Ibat.*/i.test(text)) return 'Itá Ibaté';
+    if (/Itat.*/i.test(text)) return 'Itatí';
+    if (/Yatay T.*Calle/i.test(text)) return 'Yatay Tí Calle';
+    if (/Gobernador Mart.*nez/i.test(text)) return 'Gobernador Martinez';
+    if (/Tapebicu.*/i.test(text)) return 'Tapebicuá';
+    if (/Angu.*/i.test(text)) return 'Anguá';
+    if (/Garav.*/i.test(text)) return 'Garaví';
+    if (/Santa Ana.*Gu.*caras/i.test(text)) return 'Santa Ana de los Guácaras';
+    if (/Apip.*/i.test(text)) return 'San Antonio (Isla Apipé Grande)';
+
+    return text;
+}
+
 function migrateRecords() {
     let migrated = false;
     records.forEach(r => {
+        if (r.department) {
+            const cleanD = sanitizeName(r.department);
+            if (cleanD !== r.department) {
+                r.department = cleanD;
+                migrated = true;
+            }
+        }
+        if (r.municipality) {
+            const cleanM = sanitizeName(r.municipality);
+            if (cleanM !== r.municipality) {
+                r.municipality = cleanM;
+                migrated = true;
+            }
+        }
+
         // Enforce updated Berón de Astrada GPS location (-27.548756, -57.539680)
         const isBeron = (r.department && r.department.includes('Astrada')) || (r.municipality && r.municipality.includes('Astrada'));
         if (isBeron && (r.lat !== -27.548756 || r.lng !== -57.539680)) {
@@ -1710,11 +1809,13 @@ function migrateRecords() {
             migrated = true;
         }
 
-        if (!r.department) {
+        if (!r.department || r.department === 'Capital') {
             for (const [deptName, deptData] of Object.entries(DEPARTMENTS_DATA)) {
                 if (deptData.municipalities[r.municipality]) {
-                    r.department = deptName;
-                    migrated = true;
+                    if (r.department !== deptName) {
+                        r.department = deptName;
+                        migrated = true;
+                    }
                     break;
                 }
             }
