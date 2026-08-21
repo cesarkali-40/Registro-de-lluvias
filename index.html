@@ -195,7 +195,11 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label" for="formSourceType">Fuente de información</label>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label class="form-label" for="formSourceType" style="margin-bottom: 0;">Fuente de información</label>
+                                <button type="button" id="btnAddCustomSource" class="btn-secondary"
+                                    style="padding: 2px 8px; font-size: 0.72rem; cursor: pointer; border-radius: 4px;">+ Nueva Fuente</button>
+                            </div>
                             <select id="formSourceType" class="form-input">
                                 <option value="" selected>Sin especificar</option>
                                 <option value="DRF">DRF</option>
