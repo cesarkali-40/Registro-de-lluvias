@@ -269,6 +269,44 @@ function hideLoading() {
 }
 
 // ─── Records Loading & Saving ──────────────────────────────────────────
+function measurementKey(record) {
+    const date = String(record?.date || '').trim();
+    const municipality = String(record?.municipality || '').trim().toLowerCase();
+    const rain = Number.parseFloat(String(record?.rain ?? '').replace(',', '.'));
+    const lat = Number.parseFloat(String(record?.lat ?? '').replace(',', '.'));
+    const lng = Number.parseFloat(String(record?.lng ?? '').replace(',', '.'));
+
+    // Incomplete records are not deduplicated automatically.
+    if (!date || !municipality || !Number.isFinite(rain) || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return '';
+    }
+
+    return [date, municipality, rain.toFixed(6), lat.toFixed(6), lng.toFixed(6)].join('|');
+}
+
+function deduplicateRecords() {
+    const seen = new Set();
+    const uniqueRecords = [];
+    let removed = 0;
+
+    // Keep the last copy, which is normally the most recently synchronized row.
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+        const record = records[index];
+        const key = measurementKey(record);
+
+        if (key && seen.has(key)) {
+            removed += 1;
+            continue;
+        }
+
+        if (key) seen.add(key);
+        uniqueRecords.push(record);
+    }
+
+    records = uniqueRecords.reverse();
+    return removed;
+}
+
 async function loadRecords() {
     const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (stored) {
@@ -388,6 +426,12 @@ async function loadRecords() {
         }
     } catch (e) {
         console.warn("Failed to fetch/merge from Google Sheets 'Registros' tab:", e);
+    }
+
+    const removedDuplicates = deduplicateRecords();
+    if (removedDuplicates > 0) {
+        saveRecordsToStorage();
+        console.info(`Removed ${removedDuplicates} duplicate rainfall measurement(s).`);
     }
 }
 
@@ -1241,6 +1285,11 @@ function handleFormSubmit(e) {
             source: sourceVal
         };
 
+        if (records.some(record => measurementKey(record) === measurementKey(newRecord))) {
+            showFloatingNotification('Ese registro ya existe; no se creó un duplicado.', 'warning');
+            return;
+        }
+
         // Push & save
         records.push(newRecord);
         saveRecordsToStorage();
@@ -1564,6 +1613,7 @@ function handleFileImport(e) {
                 showFloatingNotification(`Reemplazo exitoso: ${validRecords.length} registros cargados.`, 'success');
             }
 
+            deduplicateRecords();
             saveRecordsToStorage();
             setupDateInputs();
             applyFilters();
@@ -2056,6 +2106,7 @@ async function syncGoogleSheets() {
             showFloatingNotification(`Sincronización completada: Datos locales reemplazados con los ${validRecords.length} registros de Google Sheets.`, 'success');
         }
 
+        deduplicateRecords();
         saveRecordsToStorage();
         setupDateInputs();
         applyFilters();
