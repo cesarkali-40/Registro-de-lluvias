@@ -195,19 +195,19 @@
                         </div>
 
                         <div class="form-group">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <label class="form-label" for="formSourceType" style="margin-bottom: 0;">Fuente de información</label>
-                                <button type="button" id="btnAddCustomSource" class="btn-secondary"
-                                    style="padding: 2px 8px; font-size: 0.72rem; cursor: pointer; border-radius: 4px;">+ Nueva Fuente</button>
+                            <label class="form-label" for="formSourceType">Fuente de información</label>
+                            <div class="source-selector-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <select id="formSourceType" class="form-input">
+                                    <option value="" selected>Sin especificar</option>
+                                    <option value="DRF">DRF</option>
+                                    <option value="WEB INTA">WEB INTA</option>
+                                    <option value="SMN">SMN</option>
+                                    <option value="Informante">Informante</option>
+                                    <option value="Otra">Otra</option>
+                                </select>
+                                <button type="button" id="btnAddCustomSource" class="btn-secondary btn-add-source"
+                                    style="padding: 2px 8px; font-size: 0.72rem; cursor: pointer; border-radius: 4px;" title="Agregar una nueva fuente">+ Nueva Fuente</button>
                             </div>
-                            <select id="formSourceType" class="form-input">
-                                <option value="" selected>Sin especificar</option>
-                                <option value="DRF">DRF</option>
-                                <option value="WEB INTA">WEB INTA</option>
-                                <option value="SMN">SMN</option>
-                                <option value="Informante">Informante</option>
-                                <option value="Otra">Otra</option>
-                            </select>
                             <input type="text" id="formSourceDetail" class="form-input"
                                 style="display: none; margin-top: 8px;" placeholder="Nombre del informante o fuente">
                         </div>
