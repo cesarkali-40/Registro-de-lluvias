@@ -5,6 +5,7 @@
 // ─── Constants & Configuration ──────────────────────────────────────────
 const LOCAL_STORAGE_KEY = 'corrientes_rain_records';
 const CUSTOM_LOCALITIES_KEY = 'corrientes_custom_localities';
+const CUSTOM_SOURCES_KEY = 'corrientes_custom_sources';
 const MIN_RAIN_RECORD_MM = 0.99;
 
 // Department and Municipality Coordinates in Corrientes
@@ -245,7 +246,9 @@ async function initApp() {
     showLoading();
     try {
         loadCustomLocalities();
+        loadCustomSources();
         await loadRecords();
+        loadCustomSources();
         populateDropdowns();
         setupDateInputs();
         initFormMap();
@@ -1146,8 +1149,9 @@ function wireEvents() {
         populateTable();
     });
 
-    // Add new paraje / localidad button
+    // Add new paraje / localidad and custom source buttons
     document.getElementById('btnAddCustomLocality')?.addEventListener('click', handleAddCustomLocality);
+    document.getElementById('btnAddCustomSource')?.addEventListener('click', handleAddCustomSource);
 
     // Manual GPS input listeners
     const handleManualCoordsInput = () => {
@@ -1196,19 +1200,29 @@ function getFormSource() {
 }
 
 function setFormSource(source = '') {
-    const knownSources = ['', 'DRF', 'WEB INTA', 'SMN'];
     const sourceType = document.getElementById('formSourceType');
     const sourceDetail = document.getElementById('formSourceDetail');
+    if (!sourceType || !sourceDetail) return;
 
-    if (knownSources.includes(source)) {
-        sourceType.value = source;
-        sourceDetail.value = '';
-    } else if (source) {
-        sourceType.value = 'Otra';
-        sourceDetail.value = source;
-    } else {
+    const trimmed = (source || '').trim();
+
+    if (!trimmed) {
         sourceType.value = '';
         sourceDetail.value = '';
+    } else {
+        let optionExists = Array.from(sourceType.options).some(opt => opt.value === trimmed);
+        if (!optionExists) {
+            addCustomSourceOption(trimmed);
+            optionExists = Array.from(sourceType.options).some(opt => opt.value === trimmed);
+        }
+
+        if (optionExists) {
+            sourceType.value = trimmed;
+            sourceDetail.value = '';
+        } else {
+            sourceType.value = 'Otra';
+            sourceDetail.value = trimmed;
+        }
     }
 
     updateSourceDetailVisibility();
@@ -1704,6 +1718,101 @@ function parseCsvRow(line) {
     }
     result.push(current);
     return result;
+}
+
+// ─── Custom Information Sources Helpers ─────────────────────────────────
+function loadCustomSources() {
+    try {
+        const stored = localStorage.getItem(CUSTOM_SOURCES_KEY);
+        if (stored) {
+            const customSources = JSON.parse(stored);
+            if (Array.isArray(customSources)) {
+                customSources.forEach(src => {
+                    if (src && typeof src === 'string') {
+                        addCustomSourceOption(src.trim());
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        console.warn("Could not load custom sources from storage:", e);
+    }
+
+    if (Array.isArray(records)) {
+        const defaultSources = ['', 'DRF', 'WEB INTA', 'SMN', 'Informante', 'Otra'];
+        records.forEach(rec => {
+            if (rec.source && typeof rec.source === 'string') {
+                const src = rec.source.trim();
+                if (src && !defaultSources.includes(src)) {
+                    addCustomSourceOption(src);
+                }
+            }
+        });
+    }
+}
+
+function addCustomSourceOption(sourceName) {
+    const select = document.getElementById('formSourceType');
+    if (!select || !sourceName) return;
+
+    const existing = Array.from(select.options).find(opt => opt.value === sourceName);
+    if (existing) return;
+
+    const opt = document.createElement('option');
+    opt.value = sourceName;
+    opt.textContent = sourceName;
+
+    const informanteOpt = Array.from(select.options).find(o => o.value === 'Informante' || o.value === 'Otra');
+    if (informanteOpt) {
+        select.insertBefore(opt, informanteOpt);
+    } else {
+        select.appendChild(opt);
+    }
+}
+
+function saveCustomSource(sourceName) {
+    try {
+        const stored = localStorage.getItem(CUSTOM_SOURCES_KEY);
+        const customSources = stored ? JSON.parse(stored) : [];
+        if (!customSources.includes(sourceName)) {
+            customSources.push(sourceName);
+            localStorage.setItem(CUSTOM_SOURCES_KEY, JSON.stringify(customSources));
+        }
+    } catch (e) {
+        console.warn("Could not save custom source:", e);
+    }
+}
+
+async function handleAddCustomSource() {
+    const modalResult = await showCustomPrompt({
+        title: 'Agregar Nueva Fuente de Información',
+        bodyHtml: `
+            <p style="margin-bottom: 10px;">Escriba el nombre de la nueva fuente u organismo de información:</p>
+            <label class="form-label" for="modalInputValue">Nombre de la Fuente</label>
+        `,
+        placeholder: 'Ej: INTA Bella Vista, Estación Agro, Cooperativa...',
+        confirmText: 'Agregar Fuente',
+        cancelText: 'Cancelar'
+    });
+
+    if (modalResult.action !== 'confirm' || !modalResult.value) return;
+
+    const sourceName = modalResult.value.trim();
+    if (!sourceName) {
+        showFloatingNotification('Debe ingresar un nombre válido para la fuente.', 'warning');
+        return;
+    }
+
+    addCustomSourceOption(sourceName);
+    saveCustomSource(sourceName);
+
+    const sourceTypeSelect = document.getElementById('formSourceType');
+    if (sourceTypeSelect) {
+        sourceTypeSelect.value = sourceName;
+        updateSourceDetailVisibility();
+    }
+
+    showFloatingNotification(`Fuente "${sourceName}" agregada con éxito.`, 'success');
 }
 
 // ─── Custom Paraje / Localidad Helpers ─────────────────────────────────
