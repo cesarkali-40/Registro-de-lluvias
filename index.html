@@ -196,14 +196,17 @@
 
                         <div class="form-group">
                             <label class="form-label" for="formSourceType">Fuente de información</label>
-                            <select id="formSourceType" class="form-input">
-                                <option value="" selected>Sin especificar</option>
-                                <option value="DRF">DRF</option>
-                                <option value="WEB INTA">WEB INTA</option>
-                                <option value="SMN">SMN</option>
-                                <option value="Informante">Informante</option>
-                                <option value="Otra">Otra</option>
-                            </select>
+                            <div class="source-selector-row">
+                                <select id="formSourceType" class="form-input">
+                                    <option value="" selected>Sin especificar</option>
+                                    <option value="DRF">DRF</option>
+                                    <option value="WEB INTA">WEB INTA</option>
+                                    <option value="SMN">SMN</option>
+                                    <option value="Informante">Informante</option>
+                                    <option value="Otra">Otra</option>
+                                </select>
+                                <button type="button" id="btnAddCustomSource" class="btn-secondary btn-add-source" title="Agregar una nueva fuente">+ Fuente</button>
+                            </div>
                             <input type="text" id="formSourceDetail" class="form-input"
                                 style="display: none; margin-top: 8px;" placeholder="Nombre del informante o fuente">
                         </div>

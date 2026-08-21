@@ -377,6 +377,24 @@ input[type="date"].filter-select {
     gap: 6px;
 }
 
+.source-selector-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.source-selector-row .form-input {
+    min-width: 0;
+    flex: 1;
+}
+
+.btn-add-source {
+    flex-shrink: 0;
+    white-space: nowrap;
+    margin-top: 0;
+    padding: 11px 12px;
+}
+
 .form-label {
     font-size: 0.72rem;
     text-transform: uppercase;

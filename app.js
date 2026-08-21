@@ -5,6 +5,7 @@
 // ─── Constants & Configuration ──────────────────────────────────────────
 const LOCAL_STORAGE_KEY = 'corrientes_rain_records';
 const CUSTOM_LOCALITIES_KEY = 'corrientes_custom_localities';
+const CUSTOM_SOURCES_KEY = 'corrientes_custom_sources';
 const MIN_RAIN_RECORD_MM = 0.99;
 
 // Department and Municipality Coordinates in Corrientes
@@ -244,6 +245,7 @@ document.addEventListener('DOMContentLoaded', initApp);
 async function initApp() {
     showLoading();
     try {
+        loadCustomSources();
         loadCustomLocalities();
         await loadRecords();
         populateDropdowns();
@@ -1108,6 +1110,7 @@ function wireEvents() {
     });
 
     document.getElementById('formSourceType').addEventListener('change', updateSourceDetailVisibility);
+    document.getElementById('btnAddCustomSource')?.addEventListener('click', handleAddCustomSource);
 
     // Submit Button in Form
     document.getElementById('btnSubmit').addEventListener('click', handleFormSubmit);
@@ -1184,6 +1187,81 @@ function updateSourceDetailVisibility() {
     }
 }
 
+function getCustomSources() {
+    try {
+        const stored = localStorage.getItem(CUSTOM_SOURCES_KEY);
+        const sources = stored ? JSON.parse(stored) : [];
+        return Array.isArray(sources)
+            ? sources.filter(source => typeof source === 'string' && source.trim())
+            : [];
+    } catch (e) {
+        console.warn('Could not load custom information sources from storage:', e);
+        return [];
+    }
+}
+
+function addSourceOption(source, select, selectAfterAdding = false) {
+    const normalized = source.trim();
+    const existingOption = Array.from(select.options).find(option =>
+        option.value.toLowerCase() === normalized.toLowerCase()
+    );
+
+    if (existingOption) {
+        if (selectAfterAdding) select.value = existingOption.value;
+        return existingOption;
+    }
+
+    const option = document.createElement('option');
+    option.value = normalized;
+    option.textContent = normalized;
+    const referenceOption = select.querySelector('option[value="Informante"]');
+    select.insertBefore(option, referenceOption);
+    if (selectAfterAdding) select.value = normalized;
+    return option;
+}
+
+function loadCustomSources() {
+    const sourceType = document.getElementById('formSourceType');
+    if (!sourceType) return;
+    getCustomSources().forEach(source => addSourceOption(source, sourceType));
+}
+
+async function handleAddCustomSource() {
+    const result = await showCustomPrompt({
+        title: 'Agregar nueva fuente de información',
+        bodyHtml: '<p>Escriba el nombre de la nueva fuente. Quedará disponible para futuros registros en este navegador.</p>',
+        placeholder: 'Ej: Cooperativa, Estación local, Productor...',
+        confirmText: 'Agregar fuente',
+        cancelText: 'Cancelar'
+    });
+
+    if (result.action !== 'confirm') return;
+
+    const source = result.value.trim();
+    if (!source) {
+        showFloatingNotification('Debe ingresar un nombre válido para la fuente.', 'warning');
+        return;
+    }
+
+    const sourceType = document.getElementById('formSourceType');
+    const existingOption = Array.from(sourceType.options).find(option =>
+        option.value.toLowerCase() === source.toLowerCase()
+    );
+    if (existingOption) {
+        sourceType.value = existingOption.value;
+        updateSourceDetailVisibility();
+        showFloatingNotification('La fuente ya estaba disponible y fue seleccionada.', 'info');
+        return;
+    }
+
+    const customSources = getCustomSources();
+    customSources.push(source);
+    localStorage.setItem(CUSTOM_SOURCES_KEY, JSON.stringify(customSources));
+    addSourceOption(source, sourceType, true);
+    updateSourceDetailVisibility();
+    showFloatingNotification('Nueva fuente agregada y seleccionada.', 'success');
+}
+
 function getFormSource() {
     const sourceType = document.getElementById('formSourceType').value.trim();
     const sourceDetail = document.getElementById('formSourceDetail').value.trim();
@@ -1196,11 +1274,11 @@ function getFormSource() {
 }
 
 function setFormSource(source = '') {
-    const knownSources = ['', 'DRF', 'WEB INTA', 'SMN'];
     const sourceType = document.getElementById('formSourceType');
     const sourceDetail = document.getElementById('formSourceDetail');
 
-    if (knownSources.includes(source)) {
+    const sourceOption = Array.from(sourceType.options).find(option => option.value === source);
+    if (sourceOption && source !== 'Informante' && source !== 'Otra') {
         sourceType.value = source;
         sourceDetail.value = '';
     } else if (source) {
